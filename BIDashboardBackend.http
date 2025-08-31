@@ -1,0 +1,6 @@
+@BIDashboardBackend_HostAddress = http://localhost:5127
+
+GET {{BIDashboardBackend_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

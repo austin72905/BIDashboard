@@ -1,0 +1,272 @@
+---
+description: BI Dashboard Backend Rules (.NET 8 + Dapper + Hangfire + PostgreSQL + Redis)
+globs:
+alwaysApply: true
+---
+# BI Dashboard 後端專案 Cursor Rules
+
+目標：展示後端能力（ETL、快取、可伸縮查詢）。MVP 僅支援 CSV 上傳、手動 Mapping 到固定系統欄位，並提供統計與圖表資料 API。
+
+# Tech Stack（強制）
+
+* Runtime：.NET 8（Web API）
+
+* DB：PostgreSQL（IDENTITY，不用 SERIAL）
+
+* ORM：Dapper（禁止 EF Core）
+
+* 作業排程：Hangfire（背景 ETL / 聚合任務）
+
+* Cache：Redis（排行榜/統計/查詢結果快取）
+
+* 部署：Docker / Docker Compose（AWS EC2），前後端與 Redis 於同一網段
+
+* CI/CD：GitHub Actions → Docker Hub（build & push image）
+
+# 目錄結構（生成新檔一律放這裡）
+src/
+├── Configs/                     # 設定（JwtOptions、Db/Redis/Hangfire…）
+├── Controllers/                 # Web API 控制器（僅 I/O 與授權）
+│   ├── UploadsController.cs     # 上傳 CSV，回傳批次 ID
+│   ├── MappingsController.cs    # 管理欄位 Mapping（CRUD）
+│   ├── DatasetsController.cs    # Dataset & Schema 查詢
+│   ├── MetricsController.cs     # 指標（KPI）/ 時序資料
+│   └── HealthController.cs      # 健康檢查
+├── Database/                    # DB 連線與交易
+│   ├── DbSession.cs             # IDbSession (Scoped, Npgsql)
+│   ├── UnitOfWork.cs            # 交易一致性
+│   └── SqlRunner.cs             # 共用執行器
+├── DTOs/
+│   ├── Requests/                # *RequestDto
+│   └── Responses/               # *ResponseDto / Result
+├── Enums/                       # 列舉（系統欄位、狀態碼…）
+├── Extensions/                  # 擴充方法（Mapping、轉換…）
+├── Features/                    # 垂直切分（資料集、Mapping、指標、ETL）
+│   ├── Ingest/                  # CSV 接收與驗證
+│   ├── Mapping/                 # 使用者欄位→系統欄位
+│   ├── Datasets/                # Dataset、Schema、分區/動態表名
+│   ├── Metrics/                 # 聚合（OLAP-like）
+│   └── Jobs/                    # Hangfire Job（ETL、物化更新）
+├── Interfaces/
+│   ├── Services/                # I*Service（商業邏輯）
+│   └── Repositories/            # I*Repository（資料存取）
+├── Jobs/                        # Hangfire job 實作
+├── Models/                      # 實體（Dataset、Mapping、Record…）
+├── Repositories/                # Dapper 實作
+├── Services/                    # 服務實作
+├── Caching/                     # Redis Key、策略
+├── Utils/                       # 工具（Csv、Hash、Date、CsvSniffer…）
+└── Program.cs
+
+
+# 規範
+
+* Controller → 只呼叫 Service；不得直接用 DbConnection / SQL。
+
+* Service → 商業邏輯、交易、快取；呼叫 Repository、UnitOfWork。
+
+* Repository → 只處理 SQL（Dapper），參數化查詢。
+
+* DTO 只承載資料；禁止商業邏輯。
+
+* sealed 用於不可擴充的 DTO/Result/Config 類。
+
+* 非同步命名以 Async 結尾。
+
+# 資料模型與命名
+
+## 固定系統欄位（MVP）
+
+* Name, Gender, BirthDate, Age, Email, Phone（可擴充 City, SignupDate, …）
+
+* Enum：SystemField（對應上列）
+
+表：
+
+* dataset_batches（批次上傳紀錄）
+
+* dataset_columns（來源欄位名稱、型別）
+
+* dataset_mappings（來源欄位 → 系統欄位）
+
+* dataset_rows_*（動態分表或單表+batch_id；MVP 先單表 dataset_rows）
+
+* materialized_metrics（聚合結果，含 metric_key, bucket, value, updated_at）
+
+原則：先將原始 CSV 放入 staging（dataset_rows），Mapping 完成後由 ETL 將資料轉換、清洗並寫入 物化表（materialized_metrics）。
+
+# CSV 上傳與 ETL 流程（MVP）
+
+1. POST /api/uploads：接收 CSV（multipart/form-data）
+
+    * 建立 dataset_batches 記錄（status=Pending）
+
+    * 快速掃描前 N 行推測 schema（dataset_columns）
+
+    * 使用 COPY 或 batched insert 進 dataset_rows（附 batch_id）
+
+    * 回傳 batchId
+
+2. 使用者在前端 手動 Mapping → PUT /api/mappings/{batchId}
+
+    * 寫入 dataset_mappings（來源欄位 → 系統欄位）
+
+3. 觸發 Hangfire Job：RunEtlForBatch(batchId)
+
+    * 讀取 dataset_rows + dataset_mappings
+
+    * 清洗（類型轉換、日期、Email format、性別正規化）
+
+    * 根據固定系統欄位聚合：例如 年齡分布、性別分布、用戶數、有效 Email 數
+
+    * 寫入/更新 materialized_metrics
+
+    * dataset_batches.status = Succeeded / Failed
+
+4. 查詢圖表：
+
+    * GET /api/metrics/age-distribution?datasetId=...
+
+    * GET /api/metrics/gender-share?datasetId=...
+
+    * 支援時間桶（day|week|month）與範圍、分群（可留待 v2）
+
+# Redis 快取策略
+
+* Key 命名：bi:{datasetId}:{metric}:{bucketParamsHash}
+
+* TTL：預設 5–15 分鐘（MVP 取 10 分）
+
+* 失效：
+
+    * 新批次 ETL 完成 → 刪除該 dataset 相關 key
+
+* 服務層流程：
+
+    1. 先查 Redis → hit → 回傳
+
+    2. miss → 查 materialized_metrics → 回寫 Redis → 回傳
+
+# PostgreSQL 寫法（強制）
+
+* 一律 參數化：@param，嚴禁字串拼接
+
+* INSERT ... RETURNING id 取得主鍵
+
+* timestamp with time zone 儲存 UTC，前端本地化
+
+* 批量匯入：優先 COPY（Npgsql）或 batched ExecuteAsync
+
+* 大表查詢：指定欄位，避免 SELECT *
+
+* 分頁：LIMIT @limit OFFSET @offset（高資料量以 keyset pagination 為先）
+
+# 授權 / CORS / Swagger
+
+* 預設 Authorize；匿名端點（上傳前可能需登入，MVP 可先開放）用 [AllowAnonymous]
+
+* CORS 指定來源（例：http://localhost:5173），允許憑證
+
+* 開發模式啟用 Swagger（Prod 可鎖 Basic Auth 或關閉）
+
+# DI 與生命週期
+
+* IDbSession / IUnitOfWork / ISqlRunner：Scoped
+
+* 各 Service / Repository：Scoped
+
+* IJwtTokenService、CsvSniffer、CacheKeyBuilder：Singleton（無 DB 相依）
+
+# 錯誤處理 / 日誌
+
+* 全域 Exception Middleware：統一格式 {traceId, code, message}
+
+* 結構化日誌（RequestId, BatchId, DatasetId）
+
+* ETL 任務記錄耗時與行數，超量警示
+
+# 命名慣例
+
+* 介面：I*Service、I*Repository
+
+* DTO：*RequestDto / *ResponseDto（用 init;）
+
+* 結果包：*Result（如 UploadResult, MetricResult）
+
+* Job：*Job（EtlJob, RebuildMaterializedViewJob）
+
+# 產碼規範（Cursor 請遵守）
+
+* Controller 範式
+
+    * 只負責路由、驗證、模型繫結/回傳
+
+    * 僅呼叫 Service，不做業務判斷/SQL
+
+* Service 範式
+
+    * 可讀/寫 Redis
+
+    * 交易用 IUnitOfWork
+
+    * 對 Repository 組合使用，保證一致性
+
+* Repository 範式
+
+    * SQL 常數字串放在方法內（或集中在 *.sql），不得拼接使用者輸入
+
+    * 回傳明確型別，不回 dynamic（除非 Raw 需要）
+
+# 常用 Scaffold 要求（精簡片段）
+
+
+
+Hangfire Job 簽名
+
+
+public interface IEtlJob { Task RunEtlForBatchAsync(long batchId); }
+
+# Git 提交訊息（建議）
+
+``` bash
+<type>(<scope>): <subject>
+# type: feat | fix | refactor | chore | docs | test | ci | infra
+# scope: uploads | mappings | datasets | metrics | jobs | cache | db
+
+```
+
+
+# 任務範例
+
+1. 上傳 CSV（MVP）
+
+建立 UploadsController.UploadCsv、IIngestService + IngestService、IDatasetRepository + DatasetRepository、CsvSniffer。
+實作：建立 dataset_batches、dataset_columns；用 COPY 將資料寫入 dataset_rows（含 batch_id）。
+
+2. 欄位 Mapping
+
+MappingsController（CRUD）、IMappingService、IMappingRepository。
+寫入 dataset_mappings，驗證系統欄位不重複綁定。
+
+3. ETL Job
+
+IEtlJob + EtlJob，由 Hangfire 觸發 RunEtlForBatchAsync(batchId)；
+轉換/清洗 → 更新 materialized_metrics；
+成功後 清除 bi:{datasetId}:* Redis key。
+
+4. 圖表資料 API
+
+MetricsController：GET /api/metrics/age-distribution、/gender-share；
+IMetricService（含 Redis 快取）＋ IMetricRepository（查 materialized_metrics）。
+
+# 禁用與注意
+
+* 禁止 EF Core（本專案以 Dapper 為主）
+
+* 禁止將密鑰硬編碼（改用環境變數 / Secret Manager）
+
+* 禁止在 Controller 中寫 SQL / 操作 DbConnection
+
+* 禁止 SELECT *（生產查詢指定欄位）
+
+* 大量上傳務必使用 COPY 或批次寫入，避免逐行 Insert
