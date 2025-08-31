@@ -9,6 +9,7 @@ using BIDashboardBackend.Utils;
 using BIDashboardBackend.Configs;
 using BIDashboardBackend.Caching;
 using Microsoft.Extensions.Options;
+using System.Text;
 
 namespace BIDashboardBackend.Services
 {
@@ -83,6 +84,12 @@ namespace BIDashboardBackend.Services
         /// </summary>
         public async Task<AuthResult> RefreshTokenAsync(string refreshToken)
         {
+            /*
+             * 發新的 access token 給 用戶
+                refresh token 也會跟著刷新，並刷新期限
+                如果refresh token 洩漏，只要將 refresh token 從 redis 移除就可
+             
+             */
             var key = _refreshPrefix + refreshToken;
             // 從 Redis 取得刷新權杖資訊
             var cached = await _cache.GetStringAsync(key);
