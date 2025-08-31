@@ -1,14 +1,14 @@
 ﻿using BIDashboardBackend.Models;
-using System.Data;
 
 namespace BIDashboardBackend.Interfaces.Repositories
 {
     public interface IDatasetRepository
     {
-        Task<long> CreateBatchAsync(string fileName, long totalRows, IDbTransaction tx);
-        Task<int> SetBatchStatusAsync(long batchId, string status, string? errorMessage, IDbTransaction tx);
-        Task<int> UpsertColumnsAsync(long batchId, IEnumerable<DatasetColumn> columns, IDbTransaction tx);
-        Task<int> UpsertMappingsAsync(long batchId, IEnumerable<DatasetMapping> mappings, IDbTransaction tx);
+        Task<long> CreateBatchAsync(string fileName, long totalRows);
+        Task<int> SetBatchStatusAsync(long batchId, string status, string? errorMessage);
+        Task<int> UpsertColumnsAsync(long batchId, IEnumerable<DatasetColumn> columns);
+        Task<int> UpsertMappingsAsync(long batchId, IEnumerable<DatasetMapping> mappings);
+        Task<IReadOnlyList<DatasetColumn>> GetColumnsAsync(long batchId);
 
 
         // 匯入資料：MVP 可先以 batched insert；正式可用 COPY

@@ -1,5 +1,6 @@
 ﻿using BIDashboardBackend.DTOs.Request;
 using BIDashboardBackend.DTOs.Response;
+using BIDashboardBackend.Models;
 
 namespace BIDashboardBackend.Interfaces
 {
@@ -7,5 +8,6 @@ namespace BIDashboardBackend.Interfaces
     {
         Task<UploadResultDto> UploadCsvAsync(IFormFile file);
         Task UpsertMappingsAsync(UpsertMappingsRequestDto request);
+        Task<IReadOnlyList<DatasetColumn>> GetColumnsAsync(long batchId);
     }
 }
