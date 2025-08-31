@@ -1,6 +1,7 @@
 using BIDashboardBackend.Configs;
 using BIDashboardBackend.Database;
 using BIDashboardBackend.Interfaces;
+using BIDashboardBackend.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
@@ -8,60 +9,52 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// ===== è¨»å†Šæœå‹™ =====
+
+// å»ºç«‹è³‡æ–™åº«é€£ç·šçš„å·¥ä½œéšæ®µ
 builder.Services.AddScoped<IDbSession>(sp =>
 {
     var cs = sp.GetRequiredService<IConfiguration>().GetConnectionString("Pg")!;
-    return new DbSession(cs); // ¨C­Ó HTTP ½Ğ¨D¤@­Ó Scoped DbSession¡]¥Î§¹¦Û°ÊÂkÁÙ³s½u¨ì³s½u¦À¡^
+    return new DbSession(cs);
 });
-
 
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddScoped<ISqlRunner, SqlRunner>();
 
-// ¸j©w JwtOptions
+// è¼‰å…¥ JWT è¨­å®š
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("JwtSettings"));
 
-// µù¥U JwtTokenService
-//builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
+// JWT ç”¢ç”Ÿèˆ‡é©—è­‰æœå‹™
+builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
 
 builder.Services.AddControllers();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-
-
-// Åª¨ú³]©wÀÉ¤¤ªº JWT ³]©w
+// ===== JWT é©—è­‰è¨­å®š =====
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var secretKey = jwtSettings["SecretKey"];
 var issuer = jwtSettings["Issuer"];
 var audience = jwtSettings["Audience"];
-var accessTokenExpiration = int.Parse(jwtSettings["AccessTokenExpirationMinutes"] ?? "120");
-var refreshTokenExpiration = int.Parse(jwtSettings["RefreshTokenExpirationDays"] ?? "7");
-
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        // 1) ÅçÃÒ³W«h¡]§A¦Ûµoªº JWT¡^
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
             ValidateAudience = true,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            ClockSkew = TimeSpan.Zero, // ¤£µ¹½w½Ä¡A¹L´Á´N¹L´Á
+            ClockSkew = TimeSpan.Zero,
             ValidIssuer = issuer,
             ValidAudience = audience,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey))
         };
-
-
     });
 
-// ¹w³]©Ò¦³ºİÂI³£­nÅçÃÒ¡F»İ­n¶}©ñªº¥[ [AllowAnonymous]
 builder.Services.AddAuthorization(options =>
 {
     options.DefaultPolicy = new AuthorizationPolicyBuilder()
@@ -69,22 +62,20 @@ builder.Services.AddAuthorization(options =>
         .Build();
 });
 
-
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowFrontend",
-        policy =>
-        {
-            policy.WithOrigins("http://localhost:5173")
-                  .AllowAnyMethod()
-                  .AllowAnyHeader()
-                  .AllowCredentials(); // ­Y«e«áºİ¥Î Cookie/±a»{ÃÒ¡A
-        });
+    options.AddPolicy("AllowFrontend", policy =>
+    {
+        policy.WithOrigins("http://localhost:5173")
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
+    });
 });
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// ===== ä¸­ä»‹è»Ÿé«”ç®¡ç·š =====
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -92,9 +83,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("AllowFrontend");
-
+app.UseAuthentication();
 app.UseAuthorization();
-
 app.MapControllers();
-
 app.Run();
+
