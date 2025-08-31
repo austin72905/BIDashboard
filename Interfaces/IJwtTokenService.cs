@@ -1,15 +1,24 @@
-﻿using BIDashboardBackend.Models;
+using BIDashboardBackend.Models;
 
 namespace BIDashboardBackend.Interfaces
 {
+    /// <summary>
+    /// JWT 產生與相關操作的服務介面
+    /// </summary>
     public interface IJwtTokenService
     {
         /// <summary>
-        /// 產生 Access JWT
+        /// 產生存取權杖 (Access Token)
         /// </summary>
-        /// <param name="user">你系統內的使用者</param>
-        /// <param name="lifetime">存活時間（預設用設定檔），可在呼叫時覆蓋</param>
-        /// <param name="extraClaims">額外要放進 token 的 claims（可選）</param>
+        /// <param name="user">系統內的使用者實體</param>
+        /// <param name="lifetime">權杖有效期間，若為 null 則使用預設值</param>
+        /// <param name="extraClaims">額外要加入權杖的 claims</param>
         string Generate(User user, TimeSpan? lifetime = null, IDictionary<string, string>? extraClaims = null);
+
+        /// <summary>
+        /// 產生刷新權杖 (Refresh Token)
+        /// </summary>
+        string GenerateRefreshToken();
     }
 }
+
