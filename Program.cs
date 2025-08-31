@@ -2,10 +2,13 @@ using BIDashboardBackend.Configs;
 using BIDashboardBackend.Database;
 using BIDashboardBackend.Interfaces;
 using BIDashboardBackend.Services;
+using BIDashboardBackend.Caching; // 引入 Redis 快取服務
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using StackExchange.Redis;           // Redis 連線套件
+using Microsoft.Extensions.Options;  // 讀取設定選項
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,6 +30,15 @@ builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("JwtSett
 // JWT 產生與驗證服務
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+
+// 載入 Redis 設定並註冊快取服務
+builder.Services.Configure<RedisOptions>(builder.Configuration.GetSection("Redis"));
+builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+{
+    var opt = sp.GetRequiredService<IOptions<RedisOptions>>().Value;
+    return ConnectionMultiplexer.Connect(opt.ConnectionString);
+});
+builder.Services.AddSingleton<ICacheService, RedisCacheService>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();

@@ -7,6 +7,7 @@ using BIDashboardBackend.Interfaces.Repositories;
 using BIDashboardBackend.Models;
 using BIDashboardBackend.Utils;
 using BIDashboardBackend.Configs;
+using BIDashboardBackend.Caching;
 using Microsoft.Extensions.Options;
 
 namespace BIDashboardBackend.Services
@@ -21,17 +22,24 @@ namespace BIDashboardBackend.Services
         private readonly IUserRepository _userRepo;
         private readonly IJwtTokenService _jwt;
         private readonly JwtOptions _jwtOpt;
+        private readonly ICacheService _cache;        // Redis 快取服務，用於儲存刷新權杖
+        private readonly string _refreshPrefix;       // 統一的刷新權杖鍵值前綴
 
-        // 簡單的記憶體型刷新權杖儲存，實務上應存放於資料庫或快取
-        private static readonly Dictionary<string, (User User, DateTime Expiration)> _refreshTokens = new();
-
-        public AuthService(IUnitOfWork uow, IUserRepository users, IJwtTokenService jwt, IOptions<JwtOptions> jwtOpt)
+        public AuthService(
+            IUnitOfWork uow,
+            IUserRepository users,
+            IJwtTokenService jwt,
+            IOptions<JwtOptions> jwtOpt,
+            ICacheService cache,
+            IOptions<RedisOptions> redisOpt)
         {
             _httpClient = new HttpClient();
             _uow = uow;
             _userRepo = users;
             _jwt = jwt;
             _jwtOpt = jwtOpt.Value;
+            _cache = cache;
+            _refreshPrefix = $"{redisOpt.Value.KeyPrefix}:refresh:";
         }
 
         /// <summary>
@@ -57,7 +65,12 @@ namespace BIDashboardBackend.Services
                 var user = await _userRepo.GetByFirebaseUidAsync(firebaseUid);
                 var jwt = _jwt.Generate(user!);
                 var refresh = _jwt.GenerateRefreshToken();
-                _refreshTokens[refresh] = (user!, DateTime.UtcNow.AddDays(_jwtOpt.RefreshTokenExpirationDays));
+
+                // 將刷新權杖與使用者資訊保存於 Redis，並設定過期時間
+                var info = new RefreshTokenCache(user!, DateTime.UtcNow.AddDays(_jwtOpt.RefreshTokenExpirationDays));
+                var key = _refreshPrefix + refresh;
+                await _cache.SetStringAsync(key, Json.Serialize(info), TimeSpan.FromDays(_jwtOpt.RefreshTokenExpirationDays));
+
                 result.Jwt = jwt;
                 result.RefreshToken = refresh;
             }
@@ -68,32 +81,44 @@ namespace BIDashboardBackend.Services
         /// <summary>
         /// 以刷新權杖換取新的存取權杖
         /// </summary>
-        public Task<AuthResult> RefreshTokenAsync(string refreshToken)
+        public async Task<AuthResult> RefreshTokenAsync(string refreshToken)
         {
-            if (!_refreshTokens.TryGetValue(refreshToken, out var info))
+            var key = _refreshPrefix + refreshToken;
+            // 從 Redis 取得刷新權杖資訊
+            var cached = await _cache.GetStringAsync(key);
+            if (cached is null)
             {
-                return Task.FromResult(new AuthResult { Status = AuthStatus.InvalidToken, Message = "Refresh token 無效" });
+                return new AuthResult { Status = AuthStatus.InvalidToken, Message = "Refresh token 無效" };
             }
 
+            var info = Json.Deserialize<RefreshTokenCache>(cached);
             if (info.Expiration <= DateTime.UtcNow)
             {
-                _refreshTokens.Remove(refreshToken);
-                return Task.FromResult(new AuthResult { Status = AuthStatus.InvalidToken, Message = "Refresh token 已過期" });
+                await _cache.RemoveByPrefixAsync(key);
+                return new AuthResult { Status = AuthStatus.InvalidToken, Message = "Refresh token 已過期" };
             }
 
             var newJwt = _jwt.Generate(info.User);
             var newRefresh = _jwt.GenerateRefreshToken();
-            _refreshTokens.Remove(refreshToken);
-            _refreshTokens[newRefresh] = (info.User, DateTime.UtcNow.AddDays(_jwtOpt.RefreshTokenExpirationDays));
+            await _cache.RemoveByPrefixAsync(key);
 
-            return Task.FromResult(new AuthResult
+            var newInfo = new RefreshTokenCache(info.User, DateTime.UtcNow.AddDays(_jwtOpt.RefreshTokenExpirationDays));
+            var newKey = _refreshPrefix + newRefresh;
+            await _cache.SetStringAsync(newKey, Json.Serialize(newInfo), TimeSpan.FromDays(_jwtOpt.RefreshTokenExpirationDays));
+
+            return new AuthResult
             {
                 Status = AuthStatus.SuccessExistingUser,
                 Jwt = newJwt,
                 RefreshToken = newRefresh,
                 User = info.User.ToDto()
-            });
+            };
         }
+
+        /// <summary>
+        /// 用於儲存於 Redis 的刷新權杖資料模型
+        /// </summary>
+        private record RefreshTokenCache(User User, DateTime Expiration);
 
         /// <summary>
         /// 呼叫 Google API 驗證 Firebase ID Token
