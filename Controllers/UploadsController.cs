@@ -13,9 +13,9 @@ namespace BIDashboardBackend.Controllers
 
         [HttpPost("csv")]
         [DisableRequestSizeLimit]
-        public async Task<IActionResult> UploadCsv([FromForm] IFormFile file)
+        public async Task<IActionResult> UploadCsv([FromForm] UploadCsvDto req)
         {
-            var result = await _svc.UploadCsvAsync(file);
+            var result = await _svc.UploadCsvAsync(req.File);
             return Ok(result);
         }
 

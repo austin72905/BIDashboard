@@ -1,4 +1,7 @@
 ﻿using BIDashboardBackend.Models;
+using CsvHelper;
+using CsvHelper.Configuration;
+using System.Globalization;
 
 namespace BIDashboardBackend.Features.Ingest
 {
@@ -8,9 +11,84 @@ namespace BIDashboardBackend.Features.Ingest
     {
         public async Task<(long totalRows, List<DatasetColumn> columns)> ProbeAsync(Stream csv, long batchId)
         {
-            // TODO: 讀前 N 行推測欄位/型別；這裡先回傳空集合
-            await Task.CompletedTask;
-            return (0L, new List<DatasetColumn>());
+            
+            using var reader = new StreamReader(csv);
+            using var csvReader = new CsvReader(reader, new CsvConfiguration(CultureInfo.InvariantCulture)
+            {
+                HasHeaderRecord = true,
+            });
+
+            // 讀 header
+            await csvReader.ReadAsync();
+            csvReader.ReadHeader();
+            var headers = csvReader.HeaderRecord ?? Array.Empty<string>();
+
+
+
+
+
+            // 初始化每個欄位的樣本集合
+            var samples = headers.ToDictionary(h => h, h => new List<string>());
+
+            int sampleLimit = 20;
+            int sampleCount = 0;
+
+            long totalRows = 0;
+
+
+
+            
+
+            // 讀取資料列
+            while (await csvReader.ReadAsync())
+            {
+                totalRows++;
+                foreach (var h in headers)
+                {
+                    var val = csvReader.GetField(h);
+                    if (!string.IsNullOrWhiteSpace(val) && sampleCount < sampleLimit)
+                    {
+                        samples[h].Add(val);
+                    }
+                }
+
+                if (sampleCount < sampleLimit) sampleCount++;
+            }
+
+
+
+            // 型別判斷
+            var columns = new List<DatasetColumn>();
+            foreach (var h in headers)
+            {
+                string detectedType = "text";
+                var vals = samples[h];
+
+                if (vals.Count > 0)
+                {
+                    if (vals.All(v => decimal.TryParse(v, out _)))
+                    {
+                        detectedType = "number";
+                    }
+                    else if (vals.All(v => DateTime.TryParse(v, out _)))
+                    {
+                        detectedType = "date";
+                    }
+                    else if (vals.Any(v => v.Contains("@")))
+                    {
+                        detectedType = "email";
+                    }
+                }
+
+                columns.Add(new DatasetColumn
+                {
+                    BatchId = batchId,
+                    SourceName = h,
+                    DataType = detectedType
+                });
+            }
+
+            return (totalRows, columns);
         }
     }
 }

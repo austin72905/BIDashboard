@@ -4,7 +4,8 @@ namespace BIDashboardBackend.Interfaces.Repositories
 {
     public interface IDatasetRepository
     {
-        Task<long> CreateBatchAsync(string fileName, long totalRows);
+        Task<long> CreateDatasetAsync(string name, long? ownerId = null);
+        Task<long> CreateBatchAsync(long datasetId, string fileName, long totalRows);
         Task<int> SetBatchStatusAsync(long batchId, string status, string? errorMessage);
         Task<int> UpsertColumnsAsync(long batchId, IEnumerable<DatasetColumn> columns);
         Task<int> UpsertMappingsAsync(long batchId, IEnumerable<DatasetMapping> mappings);
