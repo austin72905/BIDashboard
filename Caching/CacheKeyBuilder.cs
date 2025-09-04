@@ -1,9 +1,12 @@
-﻿namespace BIDashboardBackend.Caching
+﻿using BIDashboardBackend.Configs;
+using Microsoft.Extensions.Options;
+
+namespace BIDashboardBackend.Caching
 {
     public sealed class CacheKeyBuilder
     {
         private readonly string _prefix;
-        public CacheKeyBuilder(string prefix) => _prefix = prefix;
+        public CacheKeyBuilder(IOptions<RedisOptions> opt) => _prefix = opt.Value.KeyPrefix ?? "bi";
 
 
         public string Metric(long datasetId, string metric, string bucket)
