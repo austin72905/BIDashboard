@@ -32,6 +32,13 @@ namespace BIDashboardBackend.Controllers
             var cols = await _svc.GetColumnsAsync(batchId);
             return Ok(cols);
         }
+
+        [HttpGet("{batchId}/mapping-info")]
+        public async Task<IActionResult> GetColumnMappingInfo(long batchId)
+        {
+            var info = await _svc.GetColumnMappingInfoAsync(batchId);
+            return Ok(info);
+        }
     }
 }
 

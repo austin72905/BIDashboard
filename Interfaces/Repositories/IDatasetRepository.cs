@@ -10,6 +10,8 @@ namespace BIDashboardBackend.Interfaces.Repositories
         Task<int> UpsertColumnsAsync(long batchId, IEnumerable<DatasetColumn> columns);
         Task<int> UpsertMappingsAsync(long batchId, IEnumerable<DatasetMapping> mappings);
         Task<IReadOnlyList<DatasetColumn>> GetColumnsAsync(long batchId);
+        Task<HashSet<string>> GetAvailableSourceColumnsAsync(long batchId);
+        Task<DatasetBatch?> GetBatchAsync(long batchId);
 
 
         // 匯入資料：MVP 可先以 batched insert；正式可用 COPY

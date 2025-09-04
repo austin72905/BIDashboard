@@ -136,6 +136,28 @@ namespace BIDashboardBackend.Repositories
             return _sql.QueryAsync<DatasetColumn>(sql, new { batchId });
         }
 
+        public async Task<HashSet<string>> GetAvailableSourceColumnsAsync(long batchId)
+        {
+            const string sql = @"
+                SELECT source_name
+                FROM dataset_columns
+                WHERE batch_id = @batchId;";
+            var columns = await _sql.QueryAsync<string>(sql, new { batchId });
+            return new HashSet<string>(columns, StringComparer.OrdinalIgnoreCase);
+        }
+
+        public async Task<DatasetBatch?> GetBatchAsync(long batchId)
+        {
+            const string sql = @"
+                SELECT id AS Id, dataset_id AS DatasetId, source_filename AS SourceFilename, 
+                       total_rows AS TotalRows, status AS Status, error_message AS ErrorMessage,
+                       created_at AS CreatedAt, updated_at AS UpdatedAt
+                FROM dataset_batches
+                WHERE id = @batchId;";
+            var batches = await _sql.QueryAsync<DatasetBatch>(sql, new { batchId });
+            return batches.FirstOrDefault();
+        }
+
         public async Task<long> BulkCopyRowsAsync(long batchId, Stream csvStream, CancellationToken ct)
         {
             // 讀 header

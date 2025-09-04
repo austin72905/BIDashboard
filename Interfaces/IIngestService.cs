@@ -9,5 +9,6 @@ namespace BIDashboardBackend.Interfaces
         Task<UploadResultDto> UploadCsvAsync(IFormFile file);
         Task UpsertMappingsAsync(UpsertMappingsRequestDto request);
         Task<IReadOnlyList<DatasetColumn>> GetColumnsAsync(long batchId);
+        Task<ColumnMappingInfoDto> GetColumnMappingInfoAsync(long batchId);
     }
 }
