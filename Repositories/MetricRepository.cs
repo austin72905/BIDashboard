@@ -14,81 +14,109 @@ namespace BIDashboardBackend.Repositories
 
         // ===== KPI =====
 
-        public async Task<decimal> GetTotalRevenueAsync(long datasetId)
+        public async Task<decimal> GetTotalRevenueAsync(long datasetId,long userId)
         {
             // revenue 可能被切成多 bucket（例如月份），統計時以 SUM(value)
             const string sql = @"
-                SELECT COALESCE(SUM(value), 0)::numeric
-                FROM materialized_metrics
-                WHERE dataset_id = @datasetId AND metric_key = @metricKey;";
-            var v = await _sql.ScalarAsync<decimal>(sql, new { datasetId, metricKey = Key(MetricKey.TotalRevenue) });
+                SELECT COALESCE(SUM(mm.value), 0)::numeric
+                FROM materialized_metrics mm
+                WHERE mm.dataset_id = @datasetId AND mm.metric_key = @metricKey 
+                AND EXISTS(
+                    SELECT 1 FROM datasets d
+                    WHERE d.id = @datasetId AND d.owner_id = @userId
+                );";
+            var v = await _sql.ScalarAsync<decimal>(sql, new { datasetId, userId ,metricKey = Key(MetricKey.TotalRevenue) });
             return v;
         }
 
-        public async Task<long> GetTotalCustomersAsync(long datasetId)
+        public async Task<long> GetTotalCustomersAsync(long datasetId, long userId)
         {
             const string sql = @"
-                SELECT COALESCE(SUM(value), 0)::bigint
-                FROM materialized_metrics
-                WHERE dataset_id = @datasetId AND metric_key = @metricKey;";
-            var v = await _sql.ScalarAsync<long>(sql, new { datasetId, metricKey = Key(MetricKey.TotalCustomers) });
+                SELECT COALESCE(SUM(mm.value), 0)::bigint
+                FROM materialized_metrics mm
+                WHERE mm.dataset_id = @datasetId AND mm.metric_key = @metricKey
+                AND EXISTS(
+                    SELECT 1 FROM datasets d
+                    WHERE d.id = @datasetId AND d.owner_id = @userId
+                );";
+            var v = await _sql.ScalarAsync<long>(sql, new { datasetId, userId, metricKey = Key(MetricKey.TotalCustomers) });
             return v;
         }
 
-        public async Task<long> GetTotalOrdersAsync(long datasetId)
+        public async Task<long> GetTotalOrdersAsync(long datasetId, long userId)
         {
             const string sql = @"
-                SELECT COALESCE(SUM(value), 0)::bigint
-                FROM materialized_metrics
-                WHERE dataset_id = @datasetId AND metric_key = @metricKey;";
-            var v = await _sql.ScalarAsync<long>(sql, new { datasetId, metricKey = Key(MetricKey.TotalOrders) });
+                SELECT COALESCE(SUM(mm.value), 0)::bigint
+                FROM materialized_metrics mm
+                WHERE mm.dataset_id = @datasetId AND mm.metric_key = @metricKey
+                AND EXISTS(
+                    SELECT 1 FROM datasets d
+                    WHERE d.id = @datasetId AND d.owner_id = @userId
+                );";
+            var v = await _sql.ScalarAsync<long>(sql, new { datasetId, userId, metricKey = Key(MetricKey.TotalOrders) });
             return v;
         }
 
-        public async Task<decimal> GetAvgOrderValueAsync(long datasetId)
+        public async Task<decimal> GetAvgOrderValueAsync(long datasetId, long userId)
         {
             // 從 materialized_metrics 直接取 AvgOrderValue
             const string sql = @"
-                SELECT COALESCE(SUM(value), 0)::numeric
-                FROM materialized_metrics
-                WHERE dataset_id = @datasetId AND metric_key = @metricKey;";
-            var v = await _sql.ScalarAsync<decimal>(sql, new { datasetId, metricKey = Key(MetricKey.AvgOrderValue) });
+                SELECT COALESCE(SUM(mm.value), 0)::numeric
+                FROM materialized_metrics mm
+                WHERE mm.dataset_id = @datasetId AND mm.metric_key = @metricKey
+                AND EXISTS(
+                    SELECT 1 FROM datasets d
+                    WHERE d.id = @datasetId AND d.owner_id = @userId
+                );";
+            var v = await _sql.ScalarAsync<decimal>(sql, new { datasetId, userId, metricKey = Key(MetricKey.AvgOrderValue) });
             return v;
         }
 
-        public async Task<long> GetNewCustomersAsync(long datasetId, DateTime since)
+        public async Task<long> GetNewCustomersAsync(long datasetId, DateTime since, long userId)
         {
             // 使用 DateTime 取代 DateOnly
             const string sql = @"
-                SELECT COALESCE(SUM(value),0)::bigint
-                FROM materialized_metrics
-                WHERE dataset_id = @datasetId
-                  AND metric_key = @metricKey
-                  AND period >= @since::date;";
-            var v = await _sql.ScalarAsync<long>(sql, new { datasetId, metricKey = Key(MetricKey.NewCustomers), since });
+                SELECT COALESCE(SUM(mm.value),0)::bigint
+                FROM materialized_metrics mm
+                WHERE mm.dataset_id = @datasetId
+                  AND mm.metric_key = @metricKey
+                  AND mm.period >= @since::date
+                AND EXISTS(
+                    SELECT 1 FROM datasets d
+                    WHERE d.id = @datasetId AND d.owner_id = @userId
+                );";
+            var v = await _sql.ScalarAsync<long>(sql, new { datasetId, userId, metricKey = Key(MetricKey.NewCustomers), since });
             return v;
         }
 
-        public async Task<long> GetReturningCustomersAsync(long datasetId, DateTime since)
+        public async Task<long> GetReturningCustomersAsync(long datasetId, DateTime since, long userId)
         {
             // 使用 DateTime 取代 DateOnly
             const string sql = @"
-                SELECT COALESCE(SUM(value),0)::bigint
-                FROM materialized_metrics
-                WHERE dataset_id = @datasetId
-                  AND metric_key = @metricKey
-                  AND period >= @since::date;";
-            var v = await _sql.ScalarAsync<long>(sql, new { datasetId, metricKey = Key(MetricKey.ReturningCustomers), since });
+                SELECT COALESCE(SUM(mm.value),0)::bigint
+                FROM materialized_metrics mm
+                WHERE mm.dataset_id = @datasetId
+                  AND mm.metric_key = @metricKey
+                  AND mm.period >= @since::date
+                AND EXISTS(
+                    SELECT 1 FROM datasets d
+                    WHERE d.id = @datasetId AND d.owner_id = @userId
+                );";
+            var v = await _sql.ScalarAsync<long>(sql, new { datasetId, userId, metricKey = Key(MetricKey.ReturningCustomers), since });
             return v;
         }
 
-        public async Task<long> GetPendingOrdersAsync(long datasetId)
+        public async Task<long> GetPendingOrdersAsync(long datasetId, long userId)
         {
             const string sql = @"
-                SELECT COALESCE(SUM(value),0)::bigint
-                FROM materialized_metrics
-                WHERE dataset_id = @datasetId AND metric_key = @metricKey;";
-            var v = await _sql.ScalarAsync<long>(sql, new { datasetId, metricKey = Key(MetricKey.PendingOrders) });
+                SELECT COALESCE(SUM(mm.value),0)::bigint
+                FROM materialized_metrics mm
+                WHERE mm.dataset_id = @datasetId AND mm.metric_key = @metricKey
+                AND EXISTS(
+                    SELECT 1 FROM datasets d
+                    WHERE d.id = @datasetId AND d.owner_id = @userId
+                );";
+            var v = await _sql.ScalarAsync<long>(sql, new { datasetId, userId, metricKey = Key(MetricKey.PendingOrders) });
             return v;
         }
 
@@ -99,89 +127,114 @@ namespace BIDashboardBackend.Repositories
         private sealed class CatQtyRow { public string Category { get; init; } = string.Empty; public long Qty { get; init; } }
         private sealed class BucketRow { public string Bucket { get; init; } = string.Empty; public long Value { get; init; } }
 
-        public async Task<IReadOnlyList<(DateTime Period, decimal Value)>> GetMonthlyRevenueTrendAsync(long datasetId, int months)
+        public async Task<IReadOnlyList<(DateTime Period, decimal Value)>> GetMonthlyRevenueTrendAsync(long datasetId, int months, long userId)
         {
             const string sql = @"
                 SELECT period AS Period,
                        COALESCE(SUM(value),0)::numeric AS Value
-                FROM materialized_metrics
-                WHERE dataset_id = @datasetId AND metric_key = @metricKey
-                  AND period IS NOT NULL
-                  AND period >= (date_trunc('month', CURRENT_DATE) - (@months::int - 1) * INTERVAL '1 month')::date
+                FROM materialized_metrics mm
+                WHERE mm.dataset_id = @datasetId AND mm.metric_key = @metricKey
+                  AND mm.period IS NOT NULL
+                  AND mm.period >= (date_trunc('month', CURRENT_DATE) - (@months::int - 1) * INTERVAL '1 month')::date
+                AND EXISTS(
+                    SELECT 1 FROM datasets d
+                    WHERE d.id = @datasetId AND d.owner_id = @userId
+                )
                 GROUP BY Period
                 ORDER BY Period;";
             var rows = await _sql.QueryAsync<PeriodValueRow>(sql, new
             {
                 datasetId,
+                userId,
                 metricKey = Key(MetricKey.MonthlyRevenueTrend),
                 months
             });
             return rows.Select(r => (r.Period, r.Value)).ToList();
         }
 
-        public async Task<IReadOnlyList<(string Name, long Value)>> GetRegionDistributionAsync(long datasetId)
+        public async Task<IReadOnlyList<(string Name, long Value)>> GetRegionDistributionAsync(long datasetId, long userId)
         {
             const string sql = @"
                 SELECT bucket AS Name, COALESCE(SUM(value),0)::bigint AS Value
-                FROM materialized_metrics
-                WHERE dataset_id = @datasetId AND metric_key = @metricKey
-                  AND bucket IS NOT NULL
+                FROM materialized_metrics mm
+                WHERE mm.dataset_id = @datasetId AND mm.metric_key = @metricKey
+                  AND mm.bucket IS NOT NULL
+                AND EXISTS(
+                    SELECT 1 FROM datasets d
+                    WHERE d.id = @datasetId AND d.owner_id = @userId
+                )
                 GROUP BY bucket
                 ORDER BY Value DESC, bucket;";
             var rows = await _sql.QueryAsync<NameValueRow>(sql, new
             {
                 datasetId,
+                userId,
                 metricKey = Key(MetricKey.RegionDistribution)
             });
             return rows.Select(r => (r.Name, r.Value)).ToList();
         }
 
-        public async Task<IReadOnlyList<(string Category, long Qty)>> GetProductCategorySalesAsync(long datasetId)
+        public async Task<IReadOnlyList<(string Category, long Qty)>> GetProductCategorySalesAsync(long datasetId, long userId)
         {
             const string sql = @"
                 SELECT bucket AS Category, COALESCE(SUM(value),0)::bigint AS Qty
-                FROM materialized_metrics
-                WHERE dataset_id = @datasetId AND metric_key = @metricKey
-                  AND bucket IS NOT NULL
+                FROM materialized_metrics mm
+                WHERE mm.dataset_id = @datasetId AND mm.metric_key = @metricKey
+                  AND mm.bucket IS NOT NULL
+                AND EXISTS(
+                    SELECT 1 FROM datasets d
+                    WHERE d.id = @datasetId AND d.owner_id = @userId
+                )
                 GROUP BY bucket
                 ORDER BY Qty DESC, bucket;";
             var rows = await _sql.QueryAsync<CatQtyRow>(sql, new
             {
                 datasetId,
+                userId,
                 metricKey = Key(MetricKey.ProductCategorySales)
             });
             return rows.Select(r => (r.Category, r.Qty)).ToList();
         }
 
-        public async Task<IReadOnlyList<(string Bucket, long Value)>> GetAgeDistributionAsync(long datasetId)
+        public async Task<IReadOnlyList<(string Bucket, long Value)>> GetAgeDistributionAsync(long datasetId, long userId)
         {
             const string sql = @"
                 SELECT bucket, COALESCE(SUM(value),0)::bigint AS Value
-                FROM materialized_metrics
-                WHERE dataset_id = @datasetId AND metric_key = @metricKey
-                  AND bucket IS NOT NULL
+                FROM materialized_metrics mm
+                WHERE mm.dataset_id = @datasetId AND mm.metric_key = @metricKey
+                  AND mm.bucket IS NOT NULL
+                AND EXISTS(
+                    SELECT 1 FROM datasets d
+                    WHERE d.id = @datasetId AND d.owner_id = @userId
+                )
                 GROUP BY bucket
                 ORDER BY bucket;"; // 例如 '20-29','30-39',...
             var rows = await _sql.QueryAsync<BucketRow>(sql, new
             {
                 datasetId,
+                userId,
                 metricKey = Key(MetricKey.AgeDistribution)
             });
             return rows.Select(r => (r.Bucket, r.Value)).ToList();
         }
 
-        public async Task<IReadOnlyList<(string Gender, long Value)>> GetGenderShareAsync(long datasetId)
+        public async Task<IReadOnlyList<(string Gender, long Value)>> GetGenderShareAsync(long datasetId, long userId)
         {
             const string sql = @"
                 SELECT bucket AS Gender, COALESCE(SUM(value),0)::bigint AS Value
-                FROM materialized_metrics
-                WHERE dataset_id = @datasetId AND metric_key = @metricKey
-                  AND bucket IS NOT NULL
+                FROM materialized_metrics mm
+                WHERE mm.dataset_id = @datasetId AND mm.metric_key = @metricKey
+                  AND mm.bucket IS NOT NULL
+                AND EXISTS(
+                    SELECT 1 FROM datasets d
+                    WHERE d.id = @datasetId AND d.owner_id = @userId
+                )
                 GROUP BY bucket
                 ORDER BY bucket;";
             var rows = await _sql.QueryAsync<BucketRow>(sql, new
             {
                 datasetId,
+                userId,
                 metricKey = Key(MetricKey.GenderShare)
             });
             return rows.Select(r => (r.Bucket, r.Value)).ToList();

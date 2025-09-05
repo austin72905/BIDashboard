@@ -1,5 +1,6 @@
 ﻿using BIDashboardBackend.Caching;
 using BIDashboardBackend.DTOs.Response;
+using BIDashboardBackend.Enums;
 using BIDashboardBackend.Interfaces;
 using BIDashboardBackend.Interfaces.Repositories;
 using BIDashboardBackend.Utils;
@@ -20,7 +21,9 @@ namespace BIDashboardBackend.Services
             _keys = keys;
         }
 
-        public async Task<KpiSummaryDto> GetKpiSummaryAsync(long datasetId)
+        
+
+        public async Task<KpiSummaryDto> GetKpiSummaryAsync(long datasetId, long userId)
         {
             var cacheKey = _keys.MetricKey(datasetId, "kpi-summary");
             
@@ -33,13 +36,13 @@ namespace BIDashboardBackend.Services
             }
 
             // 並行獲取所有 KPI
-            var totalRevenueTask = _repo.GetTotalRevenueAsync(datasetId);
-            var totalCustomersTask = _repo.GetTotalCustomersAsync(datasetId);
-            var totalOrdersTask = _repo.GetTotalOrdersAsync(datasetId);
-            var avgOrderValueTask = _repo.GetAvgOrderValueAsync(datasetId);
-            var newCustomersTask = _repo.GetNewCustomersAsync(datasetId, DateTime.Now.AddMonths(-1));
-            var returningCustomersTask = _repo.GetReturningCustomersAsync(datasetId, DateTime.Now.AddMonths(-1));
-            var pendingOrdersTask = _repo.GetPendingOrdersAsync(datasetId);
+            var totalRevenueTask = _repo.GetTotalRevenueAsync(datasetId, userId);
+            var totalCustomersTask = _repo.GetTotalCustomersAsync(datasetId, userId);
+            var totalOrdersTask = _repo.GetTotalOrdersAsync(datasetId, userId);
+            var avgOrderValueTask = _repo.GetAvgOrderValueAsync(datasetId, userId);
+            var newCustomersTask = _repo.GetNewCustomersAsync(datasetId, DateTime.Now.AddMonths(-1), userId);
+            var returningCustomersTask = _repo.GetReturningCustomersAsync(datasetId, DateTime.Now.AddMonths(-1), userId);
+            var pendingOrdersTask = _repo.GetPendingOrdersAsync(datasetId, userId);
 
             await Task.WhenAll(
                 totalRevenueTask,
@@ -69,7 +72,7 @@ namespace BIDashboardBackend.Services
             return result;
         }
 
-        public async Task<AgeDistributionDto> GetAgeDistributionAsync(long datasetId)
+        public async Task<AgeDistributionDto> GetAgeDistributionAsync(long datasetId, long userId)
         {
             var cacheKey = _keys.MetricKey(datasetId, "age-distribution");
             
@@ -80,7 +83,7 @@ namespace BIDashboardBackend.Services
                 if (cachedResult != null) return cachedResult;
             }
 
-            var data = await _repo.GetAgeDistributionAsync(datasetId);
+            var data = await _repo.GetAgeDistributionAsync(datasetId, userId);
             var result = new AgeDistributionDto
             {
                 DatasetId = datasetId,
@@ -96,7 +99,7 @@ namespace BIDashboardBackend.Services
             return result;
         }
 
-        public async Task<GenderShareDto> GetGenderShareAsync(long datasetId)
+        public async Task<GenderShareDto> GetGenderShareAsync(long datasetId, long userId)
         {
             var cacheKey = _keys.MetricKey(datasetId, "gender-share");
             
@@ -107,7 +110,7 @@ namespace BIDashboardBackend.Services
                 if (cachedResult != null) return cachedResult;
             }
 
-            var data = await _repo.GetGenderShareAsync(datasetId);
+            var data = await _repo.GetGenderShareAsync(datasetId, userId);
             var result = new GenderShareDto
             {
                 DatasetId = datasetId,
@@ -123,7 +126,7 @@ namespace BIDashboardBackend.Services
             return result;
         }
 
-        public async Task<MonthlyRevenueTrendDto> GetMonthlyRevenueTrendAsync(long datasetId, int months = 12)
+        public async Task<MonthlyRevenueTrendDto> GetMonthlyRevenueTrendAsync(long datasetId, long userId, int months = 12)
         {
             var cacheKey = _keys.MetricKey(datasetId, $"monthly-revenue-trend-{months}");
             
@@ -134,7 +137,7 @@ namespace BIDashboardBackend.Services
                 if (cachedResult != null) return cachedResult;
             }
 
-            var data = await _repo.GetMonthlyRevenueTrendAsync(datasetId, months);
+            var data = await _repo.GetMonthlyRevenueTrendAsync(datasetId, months, userId);
             var result = new MonthlyRevenueTrendDto
             {
                 DatasetId = datasetId,
@@ -150,7 +153,7 @@ namespace BIDashboardBackend.Services
             return result;
         }
 
-        public async Task<RegionDistributionDto> GetRegionDistributionAsync(long datasetId)
+        public async Task<RegionDistributionDto> GetRegionDistributionAsync(long datasetId, long userId)
         {
             var cacheKey = _keys.MetricKey(datasetId, "region-distribution");
             
@@ -161,7 +164,7 @@ namespace BIDashboardBackend.Services
                 if (cachedResult != null) return cachedResult;
             }
 
-            var data = await _repo.GetRegionDistributionAsync(datasetId);
+            var data = await _repo.GetRegionDistributionAsync(datasetId, userId);
             var result = new RegionDistributionDto
             {
                 DatasetId = datasetId,
@@ -177,7 +180,7 @@ namespace BIDashboardBackend.Services
             return result;
         }
 
-        public async Task<ProductCategorySalesDto> GetProductCategorySalesAsync(long datasetId)
+        public async Task<ProductCategorySalesDto> GetProductCategorySalesAsync(long datasetId, long userId)
         {
             var cacheKey = _keys.MetricKey(datasetId, "product-category-sales");
             
@@ -188,7 +191,7 @@ namespace BIDashboardBackend.Services
                 if (cachedResult != null) return cachedResult;
             }
 
-            var data = await _repo.GetProductCategorySalesAsync(datasetId);
+            var data = await _repo.GetProductCategorySalesAsync(datasetId, userId);
             var result = new ProductCategorySalesDto
             {
                 DatasetId = datasetId,
