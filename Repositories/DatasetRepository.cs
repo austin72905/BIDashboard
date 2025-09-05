@@ -288,6 +288,84 @@ FROM UNNEST(@jsons::text[]) AS t(js);";
             return res;
         }
 
+        public async Task<IReadOnlyList<UploadHistoryDto>> GetUploadHistoryAsync(long userId, int limit = 50, int offset = 0)
+        {
+            const string sql = @"
+                SELECT 
+                    db.id AS BatchId,
+                    db.dataset_id AS DatasetId,
+                    d.name AS DatasetName,
+                    db.source_filename AS SourceFilename,
+                    db.total_rows AS TotalRows,
+                    db.status AS Status,
+                    db.error_message AS ErrorMessage,
+                    db.created_at AS CreatedAt,
+                    db.updated_at AS UpdatedAt
+                FROM dataset_batches db
+                INNER JOIN datasets d ON db.dataset_id = d.id
+                WHERE d.owner_id = @userId
+                ORDER BY db.created_at DESC
+                LIMIT @limit OFFSET @offset;";
+
+            var batches = await _sql.QueryAsync<UploadHistoryDto>(sql, new { userId, limit, offset });
+            
+            // 為每個批次獲取欄位資訊
+            var result = new List<UploadHistoryDto>();
+            foreach (var batch in batches)
+            {
+                var columns = await GetBatchColumnsWithMappingAsync(batch.BatchId);
+                batch.Columns = columns;
+                result.Add(batch);
+            }
+            
+            return result;
+        }
+
+        public async Task<UploadHistoryDto?> GetBatchDetailsAsync(long batchId, long userId)
+        {
+            const string sql = @"
+                SELECT 
+                    db.id AS BatchId,
+                    db.dataset_id AS DatasetId,
+                    d.name AS DatasetName,
+                    db.source_filename AS SourceFilename,
+                    db.total_rows AS TotalRows,
+                    db.status AS Status,
+                    db.error_message AS ErrorMessage,
+                    db.created_at AS CreatedAt,
+                    db.updated_at AS UpdatedAt
+                FROM dataset_batches db
+                INNER JOIN datasets d ON db.dataset_id = d.id
+                WHERE db.id = @batchId AND d.owner_id = @userId;";
+
+            var batch = await _sql.FirstOrDefaultAsync<UploadHistoryDto>(sql, new { batchId, userId });
+            
+            if (batch == null)
+                return null;
+
+            // 獲取欄位資訊
+            var columns = await GetBatchColumnsWithMappingAsync(batchId);
+            batch.Columns = columns;
+            return batch;
+        }
+
+        private async Task<IReadOnlyList<UploadHistoryColumnDto>> GetBatchColumnsWithMappingAsync(long batchId)
+        {
+            const string sql = @"
+                SELECT 
+                    dc.source_name AS SourceName,
+                    dc.data_type AS DataType,
+                    false AS IsNullable,
+                    dm.system_field::text AS SystemField
+                FROM dataset_columns dc
+                LEFT JOIN dataset_mappings dm ON dc.batch_id = dm.batch_id AND dc.source_name = dm.source_column
+                WHERE dc.batch_id = @batchId
+                ORDER BY dc.source_name;";
+
+            var columns = await _sql.QueryAsync<UploadHistoryColumnDto>(sql, new { batchId });
+            return columns.ToList();
+        }
+
     }
 
 }

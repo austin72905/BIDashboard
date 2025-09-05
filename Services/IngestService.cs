@@ -28,7 +28,7 @@ namespace BIDashboardBackend.Services
         }
 
 
-        public async Task<UploadResultDto> UploadCsvAsync(IFormFile file)
+        public async Task<UploadResultDto> UploadCsvAsync(IFormFile file, long userId)
         {
             if (file.Length == 0) throw new InvalidOperationException("檔案為空");
 
@@ -36,9 +36,9 @@ namespace BIDashboardBackend.Services
 
             try
             {
-                // 1. 插入 Dataset
+                // 1. 插入 Dataset，關聯到指定用戶
                 var datasetName = Path.GetFileNameWithoutExtension(file.FileName);
-                var datasetId = await _repo.CreateDatasetAsync(datasetName);
+                var datasetId = await _repo.CreateDatasetAsync(datasetName, ownerId: userId);
 
                 // 2. 提取有哪些表頭、每個column可能的型別和總行數
                 long totalRows;
@@ -169,9 +169,34 @@ namespace BIDashboardBackend.Services
                 throw;
             }
         }
+
+        /*
+            上傳歷史紀錄，以batch為單位，顯示該batch 上傳檔案的名稱、column，不需要顯示實際上傳內容
+            點進去單一筆，會顯示該batch的mapping情況
+        
+         */
         
         public Task<IReadOnlyList<DatasetColumn>> GetColumnsAsync(long batchId)
             => _repo.GetColumnsAsync(batchId);
+
+        /// <summary>
+        /// 獲取用戶的上傳歷史紀錄
+        /// </summary>
+        /// <param name="userId">用戶 ID</param>
+        /// <param name="limit">限制筆數，預設 50</param>
+        /// <param name="offset">偏移量，預設 0</param>
+        /// <returns>上傳歷史紀錄列表</returns>
+        public Task<IReadOnlyList<UploadHistoryDto>> GetUploadHistoryAsync(long userId, int limit = 50, int offset = 0)
+            => _repo.GetUploadHistoryAsync(userId, limit, offset);
+
+        /// <summary>
+        /// 獲取指定批次的詳細資訊（包含欄位和映射）
+        /// </summary>
+        /// <param name="batchId">批次 ID</param>
+        /// <param name="userId">用戶 ID（用於權限驗證）</param>
+        /// <returns>批次詳細資訊</returns>
+        public Task<UploadHistoryDto?> GetBatchDetailsAsync(long batchId, long userId)
+            => _repo.GetBatchDetailsAsync(batchId, userId);
 
         /// <summary>
         /// 取得欄位對應資訊，包含系統欄位字典和資料欄位（含映射資訊），並提供型別相容性檢查

@@ -6,8 +6,8 @@ namespace BIDashboardBackend.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    //[Authorize]
-    public class MetricsController : ControllerBase
+    [Authorize]
+    public class MetricsController : BaseController
     {
         private readonly IMetricService _svc;
         public MetricsController(IMetricService svc) => _svc = svc;
@@ -21,7 +21,7 @@ namespace BIDashboardBackend.Controllers
             if (datasetId <= 0)
                 return BadRequest("無效的資料集 ID");
 
-            var data = await _svc.GetKpiSummaryAsync(datasetId);
+            var data = await _svc.GetKpiSummaryAsync(datasetId,UserId);
             return Ok(data);
         }
 
@@ -34,7 +34,7 @@ namespace BIDashboardBackend.Controllers
             if (datasetId <= 0)
                 return BadRequest("無效的資料集 ID");
 
-            var data = await _svc.GetAgeDistributionAsync(datasetId);
+            var data = await _svc.GetAgeDistributionAsync(datasetId, UserId);
             return Ok(data);
         }
 
@@ -47,7 +47,7 @@ namespace BIDashboardBackend.Controllers
             if (datasetId <= 0)
                 return BadRequest("無效的資料集 ID");
 
-            var data = await _svc.GetGenderShareAsync(datasetId);
+            var data = await _svc.GetGenderShareAsync(datasetId, UserId);
             return Ok(data);
         }
 
@@ -76,7 +76,7 @@ namespace BIDashboardBackend.Controllers
             if (datasetId <= 0)
                 return BadRequest("無效的資料集 ID");
 
-            var data = await _svc.GetRegionDistributionAsync(datasetId);
+            var data = await _svc.GetRegionDistributionAsync(datasetId, UserId);
             return Ok(data);
         }
 
@@ -89,7 +89,7 @@ namespace BIDashboardBackend.Controllers
             if (datasetId <= 0)
                 return BadRequest("無效的資料集 ID");
 
-            var data = await _svc.GetProductCategorySalesAsync(datasetId);
+            var data = await _svc.GetProductCategorySalesAsync(datasetId, UserId);
             return Ok(data);
         }
 
