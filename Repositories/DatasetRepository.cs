@@ -1,4 +1,5 @@
-﻿using BIDashboardBackend.Interfaces;
+﻿using BIDashboardBackend.DTOs.Response;
+using BIDashboardBackend.Interfaces;
 using BIDashboardBackend.Interfaces.Repositories;
 using BIDashboardBackend.Models;
 using System.Text;
@@ -134,6 +135,28 @@ namespace BIDashboardBackend.Repositories
                 WHERE batch_id = @batchId
                 ORDER BY source_name;";
             return _sql.QueryAsync<DatasetColumn>(sql, new { batchId });
+        }
+
+        public Task<IReadOnlyList<DatasetColumnWithMapping>> GetColumnsWithMappingAsync(long batchId)
+        {
+            const string sql = @"
+                SELECT 
+                    dc.id AS Id,
+                    dc.batch_id AS BatchId,
+                    dc.source_name AS SourceName,
+                    dc.data_type AS DataType,
+                    dc.sample_value AS SampleValue,
+                    dc.created_at AS CreatedAt,
+                    dc.updated_at AS UpdatedAt,
+                    dm.system_field AS MappedSystemField,
+                    dm.id AS MappingId,
+                    dm.created_at AS MappingCreatedAt
+                FROM dataset_columns dc
+                LEFT JOIN dataset_mappings dm ON dc.batch_id = dm.batch_id 
+                    AND dc.source_name = dm.source_column
+                WHERE dc.batch_id = @batchId
+                ORDER BY dc.source_name;";
+            return _sql.QueryAsync<DatasetColumnWithMapping>(sql, new { batchId });
         }
 
         public async Task<HashSet<string>> GetAvailableSourceColumnsAsync(long batchId)
