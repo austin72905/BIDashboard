@@ -2,6 +2,6 @@
 {
     public interface IEtlJob
     {
-        Task RunEtlForBatchAsync(long batchId, CancellationToken ct = default);
+        Task ProcessBatch(long datasetId, long batchId);
     }
 }

@@ -4,7 +4,7 @@
     {
         public long Id { get; init; }
 
-        public long? DatasetId { get; init; }                      // FK -> datasets.id
+        public long DatasetId { get; init; }                      // FK -> datasets.id
         public string SourceFilename { get; init; } = string.Empty;
         public long TotalRows { get; init; }
 

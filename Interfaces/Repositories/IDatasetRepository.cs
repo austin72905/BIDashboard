@@ -1,4 +1,5 @@
-﻿using BIDashboardBackend.Models;
+﻿using BIDashboardBackend.DTOs.Response;
+using BIDashboardBackend.Models;
 
 namespace BIDashboardBackend.Interfaces.Repositories
 {
@@ -13,6 +14,12 @@ namespace BIDashboardBackend.Interfaces.Repositories
         Task<HashSet<string>> GetAvailableSourceColumnsAsync(long batchId);
         Task<DatasetBatch?> GetBatchAsync(long batchId);
 
+        /// <summary>
+        /// 使用 JOIN 查詢取得欄位及其映射資訊
+        /// </summary>
+        /// <param name="batchId">批次 ID</param>
+        /// <returns>包含映射資訊的欄位列表</returns>
+        Task<IReadOnlyList<DatasetColumnWithMapping>> GetColumnsWithMappingAsync(long batchId);
 
         // 匯入資料：MVP 可先以 batched insert；正式可用 COPY
         Task<long> BulkCopyRowsAsync(long batchId, Stream csvStream, CancellationToken ct);

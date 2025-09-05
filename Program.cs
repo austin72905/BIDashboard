@@ -2,16 +2,20 @@ using BIDashboardBackend.Caching; // 引入 Redis 快取服務
 using BIDashboardBackend.Configs;
 using BIDashboardBackend.Database;
 using BIDashboardBackend.Features.Ingest;
+using BIDashboardBackend.Features.Jobs;
 using BIDashboardBackend.Interfaces;
 using BIDashboardBackend.Interfaces.Repositories;  // 讀取設定選項
 using BIDashboardBackend.Repositories;
 using BIDashboardBackend.Services;
+using Hangfire;
+using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using StackExchange.Redis;           // Redis 連線套件
 using System.Text;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,6 +31,12 @@ builder.Services.AddScoped<IDbSession>(sp =>
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddScoped<ISqlRunner, SqlRunner>();
 
+// Hangfire
+builder.Services.AddHangfire(config =>
+    config.UsePostgreSqlStorage(c =>
+        c.UseNpgsqlConnection(builder.Configuration.GetConnectionString("Pg"))));
+
+builder.Services.AddHangfireServer();
 
 
 // 載入 JWT 設定
@@ -53,6 +63,7 @@ builder.Services.AddSingleton<CacheKeyBuilder>();   // 產 Key 的工具
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IIngestService, IngestService>();
 builder.Services.AddScoped<IMetricService, MetricService>();
+builder.Services.AddScoped<IEtlJob,EtlJob>();
 
 // repo
 builder.Services.AddScoped<IDatasetRepository, DatasetRepository>();

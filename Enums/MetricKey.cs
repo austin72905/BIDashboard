@@ -24,4 +24,28 @@
         GenderShare,             // 性別比例
         DataSummary              // 數據摘要（打包 KPI）
     }
+
+    public static class MetricCatalog
+    {
+        public static readonly Dictionary<MetricKey, AggregationKind> Map = new()
+        {
+            { MetricKey.TotalRevenue, AggregationKind.Sum },
+            { MetricKey.TotalCustomers, AggregationKind.DistinctCount },
+            { MetricKey.TotalOrders, AggregationKind.Count },
+            { MetricKey.AvgOrderValue, AggregationKind.Average },
+            { MetricKey.NewCustomers, AggregationKind.DistinctCount },
+            { MetricKey.ReturningCustomers, AggregationKind.DistinctCount },
+            { MetricKey.PendingOrders, AggregationKind.StatusCount },
+            { MetricKey.Regions, AggregationKind.Share },
+            { MetricKey.ProductCategorySales, AggregationKind.Sum },
+            { MetricKey.MonthlyRevenueTrend, AggregationKind.Sum },
+            { MetricKey.RegionDistribution, AggregationKind.Share },
+            { MetricKey.AgeDistribution, AggregationKind.Count },
+            { MetricKey.GenderShare, AggregationKind.Share },
+            { MetricKey.DataSummary, AggregationKind.Sum } // 或視情況打包計算
+        };
+    }
+
+
+
 }

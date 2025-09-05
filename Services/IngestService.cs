@@ -7,6 +7,7 @@ using BIDashboardBackend.Interfaces;
 using BIDashboardBackend.Interfaces.Repositories;
 using BIDashboardBackend.Models;
 using Hangfire;
+using System.Data;
 
 namespace BIDashboardBackend.Services
 {
@@ -15,15 +16,15 @@ namespace BIDashboardBackend.Services
         private readonly IDatasetRepository _repo;
         private readonly IUnitOfWork _uow;
         private readonly CsvSniffer _sniffer;
-        //private readonly IBackgroundJobClient _jobs;
+        private readonly IBackgroundJobClient _jobs;
 
 
-        public IngestService(IDatasetRepository repo, IUnitOfWork uow, CsvSniffer sniffer)
+        public IngestService(IDatasetRepository repo, IUnitOfWork uow, IBackgroundJobClient jobs, CsvSniffer sniffer)
         {
             _repo = repo;
             _uow = uow;
             _sniffer = sniffer;
-            //_jobs = jobs;
+            _jobs = jobs;
         }
 
 
@@ -156,6 +157,11 @@ namespace BIDashboardBackend.Services
                 await _repo.SetBatchStatusAsync(request.BatchId, "Mapped", null);
 
                 await _uow.CommitAsync();
+
+
+                //enqueue ETL job
+                _jobs.Enqueue<IEtlJob>(j => j.ProcessBatch(batch.DatasetId, request.BatchId));
+
             }
             catch
             {
@@ -168,23 +174,22 @@ namespace BIDashboardBackend.Services
             => _repo.GetColumnsAsync(batchId);
 
         /// <summary>
-        /// 取得欄位對應資訊，包含系統欄位字典和資料欄位，並提供型別相容性檢查
+        /// 取得欄位對應資訊，包含系統欄位字典和資料欄位（含映射資訊），並提供型別相容性檢查
         /// </summary>
         /// <param name="batchId">批次 ID</param>
-        /// <returns>包含系統欄位、資料欄位和型別警告的完整資訊</returns>
+        /// <returns>包含系統欄位、資料欄位和映射資訊的完整資訊</returns>
         public async Task<ColumnMappingInfoDto> GetColumnMappingInfoAsync(long batchId)
         {
-            // 1. 取得資料欄位
-            var dataColumns = await _repo.GetColumnsAsync(batchId);
+            // 1. 使用 JOIN 查詢取得資料欄位及其映射資訊
+            var dataColumnsWithMapping = await _repo.GetColumnsWithMappingAsync(batchId);
             
             // 2. 取得系統欄位字典
             var systemFields = SystemFieldInfo.SystemFieldDict;
-                     
             
             return new ColumnMappingInfoDto
             {
                 SystemFields = systemFields,
-                DataColumns = dataColumns
+                DataColumns = dataColumnsWithMapping
             };
         }
         
