@@ -46,6 +46,17 @@ namespace BIDashboardBackend.Controllers
             }
             return Ok(result);
         }
+
+        /// <summary>
+        /// 登出並撤銷 refresh token
+        /// </summary>
+        [HttpPost("logout")]
+        [Authorize]
+        public async Task<IActionResult> Logout([FromBody] LogoutRequest req)
+        {
+            var result = await _auth.LogoutAsync(req.RefreshToken);
+            return Ok(result);
+        }
     }
 }
 

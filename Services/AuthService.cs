@@ -123,6 +123,47 @@ namespace BIDashboardBackend.Services
         }
 
         /// <summary>
+        /// 登出並撤銷刷新權杖
+        /// </summary>
+        public async Task<AuthResult> LogoutAsync(string refreshToken)
+        {
+            try
+            {
+                var key = _refreshPrefix + refreshToken;
+                
+                // 從 Redis 檢查刷新權杖是否存在
+                var cached = await _cache.GetStringAsync(key);
+                if (cached is null)
+                {
+                    // 即使 refresh token 不存在，也算登出成功（可能已經過期或被撤銷）
+                    return new AuthResult 
+                    { 
+                        Status = AuthStatus.SuccessExistingUser, 
+                        Message = "已登出（refresh token 不存在或已過期）" 
+                    };
+                }
+
+                // 從 Redis 移除刷新權杖
+                await _cache.RemoveByPrefixAsync(key);
+
+                return new AuthResult
+                {
+                    Status = AuthStatus.SuccessExistingUser,
+                    Message = "登出成功，refresh token 已撤銷"
+                };
+            }
+            catch (Exception ex)
+            {
+                // 記錄錯誤但仍返回成功，因為登出操作應該是容錯的
+                return new AuthResult
+                {
+                    Status = AuthStatus.SuccessExistingUser,
+                    Message = $"登出完成，但清理過程發生錯誤: {ex.Message}"
+                };
+            }
+        }
+
+        /// <summary>
         /// 用於儲存於 Redis 的刷新權杖資料模型
         /// </summary>
         private record RefreshTokenCache(User User, DateTime Expiration);
@@ -132,7 +173,7 @@ namespace BIDashboardBackend.Services
         /// </summary>
         private async Task<FirebaseAuthResponse?> VerifyFirebaseIdTokenAsync(string idToken)
         {
-            string key = ""; // 這裡應填入實際的 Firebase API Key
+            string key = "AIzaSyCjLjyb09eGbnJP_rp-d2MAwp3mEzg2Yog"; // 這裡應填入實際的 Firebase API Key
             var url = $"https://identitytoolkit.googleapis.com/v1/accounts:lookup?key={key}";
             using var req = new HttpRequestMessage(HttpMethod.Post, url)
             {

@@ -18,6 +18,12 @@ namespace BIDashboardBackend.Interfaces
         /// </summary>
         /// <param name="refreshToken">既有的刷新權杖</param>
         Task<AuthResult> RefreshTokenAsync(string refreshToken);
+
+        /// <summary>
+        /// 登出並撤銷刷新權杖
+        /// </summary>
+        /// <param name="refreshToken">要撤銷的刷新權杖</param>
+        Task<AuthResult> LogoutAsync(string refreshToken);
     }
 }
 
