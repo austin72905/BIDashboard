@@ -35,8 +35,15 @@ namespace BIDashboardBackend.Interfaces
         Task<ProductCategorySalesDto> GetProductCategorySalesAsync(long datasetId, long userId);
 
         /// <summary>
+        /// 獲取所有指標數據（統一接口）
+        /// </summary>
+        Task<AllMetricsDto> GetAllMetricsAsync(long datasetId, long userId, int months = 12);
+
+        /// <summary>
         /// 清除指定資料集的快取
         /// </summary>
         Task RemoveDatasetCacheAsync(long datasetId);
+
+
     }
 }

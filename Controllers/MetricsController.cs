@@ -63,7 +63,7 @@ namespace BIDashboardBackend.Controllers
             if (months <= 0 || months > 24)
                 return BadRequest("月份數量必須在 1-24 之間");
 
-            var data = await _svc.GetMonthlyRevenueTrendAsync(datasetId, months);
+            var data = await _svc.GetMonthlyRevenueTrendAsync(datasetId, UserId, months);
             return Ok(data);
         }
 
@@ -90,6 +90,22 @@ namespace BIDashboardBackend.Controllers
                 return BadRequest("無效的資料集 ID");
 
             var data = await _svc.GetProductCategorySalesAsync(datasetId, UserId);
+            return Ok(data);
+        }
+
+        /// <summary>
+        /// 獲取所有指標數據（統一接口）
+        /// </summary>
+        [HttpGet("all")]
+        public async Task<IActionResult> GetAllMetrics([FromQuery] long datasetId, [FromQuery] int months = 12)
+        {
+            if (datasetId <= 0)
+                return BadRequest("無效的資料集 ID");
+
+            if (months <= 0 || months > 24)
+                return BadRequest("月份數量必須在 1-24 之間");
+
+            var data = await _svc.GetAllMetricsAsync(datasetId, UserId, months);
             return Ok(data);
         }
 

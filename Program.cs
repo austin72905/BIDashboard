@@ -39,6 +39,7 @@ builder.Services.AddHangfire(config =>
 builder.Services.AddHangfireServer();
 
 
+
 // 載入 JWT 設定
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("JwtSettings"));
 
@@ -124,6 +125,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+// 在 /hangfire 看到 UI
+app.UseHangfireDashboard("/hangfire");
 
 app.UseCors("AllowFrontend");
 app.UseAuthentication();

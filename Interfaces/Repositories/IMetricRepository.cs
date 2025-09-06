@@ -1,5 +1,6 @@
 ﻿using BIDashboardBackend.DTOs.Response;
 using BIDashboardBackend.Enums;
+using BIDashboardBackend.Models;
 
 namespace BIDashboardBackend.Interfaces.Repositories
 {
@@ -21,8 +22,17 @@ namespace BIDashboardBackend.Interfaces.Repositories
         Task<IReadOnlyList<(string Bucket, long Value)>> GetAgeDistributionAsync(long datasetId, long userId);
         Task<IReadOnlyList<(string Gender, long Value)>> GetGenderShareAsync(long datasetId, long userId);
 
+        
+
         // 寫入/覆蓋物化值（ETL 用）
         Task UpsertMetricAsync(long datasetId, MetricKey key, string bucket, decimal value);
-        Task BulkReplaceMetricAsync(long datasetId, MetricKey key, IEnumerable<(string bucket, decimal value)> rows);
+        /// <summary>
+        /// 單次查詢回所有儀表板所需的度量資料（已合併 SQL，一次往返）。
+        /// 以通用列格式回傳，Service 端再組裝成 AllMetricsDto。
+        /// </summary>
+        Task<IReadOnlyList<MetricRow>> GetAllMetricsRowsAsync(
+            long datasetId,
+            long userId,
+            int months = 12);
     }
 }

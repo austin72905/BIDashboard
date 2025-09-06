@@ -207,10 +207,137 @@ namespace BIDashboardBackend.Services
             return result;
         }
 
+
+
+        public async Task<AllMetricsDto> GetAllMetricsAsync(
+            long datasetId, long userId, int months = 12)
+        {
+            // 建議把 months 放進快取 key，避免不同視窗互覆
+            var cacheKey = _keys.MetricKey(datasetId, $"all-metrics:m{months}");
+            var cached = await _cache.GetStringAsync(cacheKey);
+            if (!string.IsNullOrEmpty(cached))
+            {
+                var ok = JsonSerializer.Deserialize<AllMetricsDto>(cached);
+                if (ok is not null) return ok;
+            }
+
+            // 一次查回所有需要的度量資料（單次往返、單連線）
+            var rows = await _repo.GetAllMetricsRowsAsync(datasetId, userId, months);
+
+            // 小工具
+            decimal SumDec(string metric) => rows.Where(r => r.Metric == metric)
+                                                 .Sum(r => r.Value);
+            long SumLong(string metric) => (long)Math.Round(SumDec(metric));
+
+            var now = DateTime.UtcNow;
+
+            // KPI 組裝
+            var kpi = new KpiSummaryDto
+            {
+                DatasetId = datasetId,
+                TotalRevenue = SumDec("TotalRevenue"),
+                TotalCustomers = SumLong("TotalCustomers"),
+                TotalOrders = SumLong("TotalOrders"),
+                AvgOrderValue = SumDec("AvgOrderValue"),
+                NewCustomers = SumLong("NewCustomers"),
+                ReturningCustomers = SumLong("ReturningCustomers"),
+                PendingOrders = SumLong("PendingOrders"),
+                UpdatedAt = now
+            };
+
+            // 月營收趨勢
+            var monthlyTrend = new MonthlyRevenueTrendDto
+            {
+                DatasetId = datasetId,
+                Points = rows.Where(r => r.Metric == "MonthlyRevenueTrend" && r.Period.HasValue)
+                             .OrderBy(r => r.Period)
+                             .Select(r => new TrendPointDto { Period = r.Period!.Value, Value = r.Value })
+                             .ToList()
+            };
+
+            // 地區分布
+            var region = new RegionDistributionDto
+            {
+                DatasetId = datasetId,
+                Points = rows.Where(r => r.Metric == "RegionDistribution" && r.Bucket != null)
+                             .OrderByDescending(r => r.Value).ThenBy(r => r.Bucket)
+                             .Select(r => new RegionDistributionPoint
+                             {
+                                 Name = r.Bucket!,
+                                 Value = (long)Math.Round(r.Value)
+                             })
+                             .ToList()
+            };
+
+            // 產品類別銷量
+            var product = new ProductCategorySalesDto
+            {
+                DatasetId = datasetId,
+                Points = rows.Where(r => r.Metric == "ProductCategorySales" && r.Bucket != null)
+                             .OrderByDescending(r => r.Value).ThenBy(r => r.Bucket)
+                             .Select(r => new ProductCategorySalesPoint
+                             {
+                                 Category = r.Bucket!,
+                                 Qty = (long)Math.Round(r.Value)
+                             })
+                             .ToList()
+            };
+
+            // 年齡分布
+            var age = new AgeDistributionDto
+            {
+                DatasetId = datasetId,
+                Points = rows.Where(r => r.Metric == "AgeDistribution" && r.Bucket != null)
+                             .OrderBy(r => r.Bucket)
+                             .Select(r => new AgeDistributionPoint
+                             {
+                                 Bucket = r.Bucket!,
+                                 Value = (long)Math.Round(r.Value)
+                             })
+                             .ToList()
+            };
+
+            // 性別占比（把未知值歸到 Other）
+            long male = 0, female = 0, other = 0;
+            foreach (var r in rows.Where(r => r.Metric == "GenderShare" && r.Bucket != null))
+            {
+                var b = r.Bucket!.Trim().ToLowerInvariant();
+                var v = (long)Math.Round(r.Value);
+                if (b is "m" or "male" or "man" or "boy") male += v;
+                else if (b is "f" or "female" or "woman" or "girl") female += v;
+                else other += v;
+            }
+            var gender = new GenderShareDto
+            {
+                DatasetId = datasetId,
+                Male = male,
+                Female = female,
+                Other = other
+            };
+
+            var result = new AllMetricsDto
+            {
+                DatasetId = datasetId,
+                KpiSummary = kpi,
+                AgeDistribution = age,
+                GenderShare = gender,
+                MonthlyRevenueTrend = monthlyTrend,
+                RegionDistribution = region,
+                ProductCategorySales = product,
+                UpdatedAt = now
+            };
+
+            await _cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(result),
+                                        TimeSpan.FromMinutes(5));
+            return result;
+        }
+
         public async Task RemoveDatasetCacheAsync(long datasetId)
         {
             var prefix = _keys.MetricPrefix(datasetId);
             await _cache.RemoveByPrefixAsync(prefix);
         }
+
+        
     }
 }

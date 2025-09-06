@@ -38,15 +38,9 @@ namespace BIDashboardBackend.Features.Jobs
 
             await _uow.CommitAsync();
 
-            // D) 清快取（只清受影響 metric 的前綴）
-            //var metricKeys = await _sql.QueryAsync<int>(@"
-            //    SELECT DISTINCT metric_key
-            //    FROM materialized_metrics_by_batch
-            //    WHERE dataset_id=@DatasetId AND batch_id=@BatchId",
-            //    new { DatasetId = datasetId, BatchId = batchId });
-
-            //foreach (var mk in metricKeys)
-            //    await _cache.RemoveByPrefixAsync($"metric:{datasetId}:{mk}:");
+            // D) 清快取（清除該資料集的所有指標快取）
+            var cachePrefix = _keyBuilder.MetricPrefix(datasetId);
+            await _cache.RemoveByPrefixAsync(cachePrefix);
         }
 
         // === 依你的欄位命名改這兩個方法即可 ===
