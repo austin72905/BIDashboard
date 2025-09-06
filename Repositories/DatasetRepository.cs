@@ -362,6 +362,22 @@ FROM UNNEST(@jsons::text[]) AS t(js);";
             return batch;
         }
 
+        /// <summary>
+        /// 取得指定用戶可使用的所有資料集 ID
+        /// </summary>
+        /// <param name="userId">用戶 ID</param>
+        /// <returns>資料集 ID 列表</returns>
+        public Task<IReadOnlyList<long>> GetDatasetIdsByUserAsync(long userId)
+        {
+            const string sql = @"
+                SELECT id
+                FROM datasets
+                WHERE owner_id = @userId
+                ORDER BY id;";
+
+            return _sql.QueryAsync<long>(sql, new { userId });
+        }
+
         private async Task<IReadOnlyList<UploadHistoryColumnDto>> GetBatchColumnsWithMappingAsync(long batchId)
         {
             const string sql = @"
