@@ -5,6 +5,7 @@
     // 在 Mapping 表裡，使用者把 CSV 欄位 "CustName" → SystemField.Name
     public enum SystemField
     {
+        None=-1, // 未映射
         Name,
         Email,
         Phone,
