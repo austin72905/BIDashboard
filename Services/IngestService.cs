@@ -119,7 +119,7 @@ namespace BIDashboardBackend.Services
                 // 3. 檢查是否有重複的來源欄位
                 var duplicateColumns = request.Mappings
                     .GroupBy(m => m.SourceColumn, StringComparer.OrdinalIgnoreCase)
-                    .Where(g => g.Count() > 1)
+                    .Where(g => g.Count() > 1 )
                     .Select(g => g.Key)
                     .ToList();
 
@@ -129,7 +129,7 @@ namespace BIDashboardBackend.Services
                 // 4. 檢查是否有重複的系統欄位
                 var duplicateSystemFields = request.Mappings
                     .GroupBy(m => m.SystemField)
-                    .Where(g => g.Count() > 1)
+                    .Where(g => g.Count() > 1 && g.Key!=SystemField.None)
                     .Select(g => g.Key.ToString())
                     .ToList();
 
