@@ -91,6 +91,9 @@ namespace BIDashboardBackend.Repositories
 
         public async Task<int> UpsertMappingsAsync(long batchId, IEnumerable<DatasetMapping> mappings)
         {
+            // 以 (batch_id, source_column) 為唯一鍵做映射資料的更新或刪除
+            // 若 systemField = -1 (表示未映射) 則刪除該筆資料
+            // 這裡使用 UNNEST 一次傳入陣列，降低與資料庫往返的次數
             var srcColumns = new List<string>();
             var sysFields = new List<int>(); // enum -> int
 
@@ -109,14 +112,24 @@ namespace BIDashboardBackend.Repositories
                     t.src_col::text  AS source_column,
                     t.sys_f::int     AS system_field
                   FROM UNNEST(@src_columns::text[], @sys_fields::int[]) AS t(src_col, sys_f)
+                ),
+                to_delete AS (
+                  DELETE FROM dataset_mappings dm
+                  USING incoming i
+                  WHERE dm.batch_id = i.batch_id
+                    AND dm.source_column = i.source_column
+                    AND i.system_field = -1
+                  RETURNING dm.*
                 )
                 INSERT INTO dataset_mappings (batch_id, source_column, system_field, created_at, updated_at)
-                SELECT batch_id, source_column, system_field, NOW(), NOW()
-                FROM incoming
+                SELECT i.batch_id, i.source_column, i.system_field, NOW(), NOW()
+                FROM incoming i
+                WHERE i.system_field <> -1
                 ON CONFLICT (batch_id, source_column) DO UPDATE
                 SET system_field = EXCLUDED.system_field,
                     updated_at   = NOW();";
 
+            // 執行批次映射資料的新增、更新或刪除
             return await _sql.ExecAsync(sql, new
             {
                 batchId,
