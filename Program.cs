@@ -64,6 +64,7 @@ builder.Services.AddSingleton<CacheKeyBuilder>();   // 產 Key 的工具
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IIngestService, IngestService>();
 builder.Services.AddScoped<IMetricService, MetricService>();
+builder.Services.AddScoped<IDatasetService, DatasetService>();
 builder.Services.AddScoped<IEtlJob,EtlJob>();
 
 // repo

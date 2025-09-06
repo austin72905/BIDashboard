@@ -44,5 +44,12 @@ namespace BIDashboardBackend.Interfaces.Repositories
         /// <param name="userId">用戶 ID（用於權限驗證）</param>
         /// <returns>批次詳細資訊</returns>
         Task<UploadHistoryDto?> GetBatchDetailsAsync(long batchId, long userId);
+
+        /// <summary>
+        /// 取得用戶可使用的所有資料集 ID
+        /// </summary>
+        /// <param name="userId">用戶 ID</param>
+        /// <returns>資料集 ID 列表</returns>
+        Task<IReadOnlyList<long>> GetDatasetIdsByUserAsync(long userId);
     }
 }
