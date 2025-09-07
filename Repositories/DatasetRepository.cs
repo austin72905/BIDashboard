@@ -106,50 +106,21 @@ namespace BIDashboardBackend.Repositories
             if (srcColumns.Count == 0) return 0;
 
             const string sql = @"
-                WITH incoming AS (
-  SELECT
-    @batchId::bigint AS batch_id,
-    t.sys_f::int     AS system_field,
-    t.src_col::text  AS source_column
-  FROM UNNEST(@sys_fields::int[], @src_columns::text[]) AS t(sys_f, src_col)
-),
+                -- 1) 先刪除所有現有映射
+        DELETE FROM dataset_mappings 
+        WHERE batch_id = @batchId::bigint;
 
--- 1) 先找要取消的（source_column 為空 -> 以 system_field 為主體刪除）
-to_cancel AS (
-  SELECT batch_id, system_field
-  FROM incoming
-  WHERE NULLIF(source_column, '') IS NULL
-),
-
--- 2) 刪除取消對應的紀錄（以 system_field 當 key）
-deleted AS (
-  DELETE FROM dataset_mappings m
-  USING to_cancel c
-  WHERE m.batch_id = c.batch_id
-    AND m.system_field = c.system_field
-  RETURNING m.*
-),
-
--- 3) 同一請求若同一個 system_field 被多次設定，取「最後一筆」為準
-incoming_dedup AS (
-  SELECT DISTINCT ON (batch_id, system_field)
-         batch_id, system_field, source_column
-  FROM (
-    SELECT i.*,
-           ROW_NUMBER() OVER (PARTITION BY batch_id, system_field ORDER BY (SELECT 1)) AS rn
-    FROM incoming i
-    WHERE NULLIF(i.source_column, '') IS NOT NULL   -- 僅保留真正要設定的
-  ) z
-  ORDER BY batch_id, system_field, rn DESC
-)
-
--- 4) 以 (batch_id, system_field) 做 UPSERT
-INSERT INTO dataset_mappings (batch_id, system_field, source_column, created_at, updated_at)
-SELECT batch_id, system_field, source_column, NOW(), NOW()
-FROM incoming_dedup
-ON CONFLICT (batch_id, system_field) DO UPDATE
-SET source_column = EXCLUDED.source_column,
-    updated_at    = NOW();";
+        -- 2) 插入有效映射
+        INSERT INTO dataset_mappings (batch_id, system_field, source_column, created_at, updated_at)
+        SELECT 
+            @batchId::bigint AS batch_id,
+            t.sys_f::int     AS system_field,
+            t.src_col::text  AS source_column,
+            NOW()            AS created_at,
+            NOW()            AS updated_at
+        FROM UNNEST(@sys_fields::int[], @src_columns::text[]) AS t(sys_f, src_col)
+        WHERE t.sys_f != -1 
+          AND NULLIF(t.src_col, '') IS NOT NULL;";
 
             // 執行批次映射資料的新增、更新或刪除
             return await _sql.ExecAsync(sql, new
