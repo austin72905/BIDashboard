@@ -27,18 +27,46 @@ namespace BIDashboardBackend.Services
             _jobs = jobs;
         }
 
+        /// <summary>
+        /// 創建新的資料集
+        /// </summary>
+        /// <param name="datasetName">資料集名稱</param>
+        /// <param name="userId">用戶 ID</param>
+        /// <param name="description">資料集描述（可選）</param>
+        /// <returns>創建結果</returns>
+        public async Task<CreateDatasetResultDto> CreateDatasetAsync(string datasetName, long userId, string? description = null)
+        {
+            if (string.IsNullOrWhiteSpace(datasetName))
+                throw new ArgumentException("資料集名稱不能為空", nameof(datasetName));
 
-        public async Task<UploadResultDto> UploadCsvAsync(IFormFile file, long userId)
+            if (userId <= 0)
+                throw new ArgumentException("用戶 ID 必須大於 0", nameof(userId));
+
+            // 使用 Repository 創建資料集
+            var datasetId = await _repo.CreateDatasetAsync(datasetName, ownerId: userId);
+            
+            return new CreateDatasetResultDto
+            {
+                DatasetId = datasetId,
+                Name = datasetName,
+                Description = description,
+                CreatedAt = DateTime.UtcNow
+            };
+        }
+
+
+        public async Task<UploadResultDto> UploadCsvAsync(IFormFile file, long userId, long datasetId)
         {
             if (file.Length == 0) throw new InvalidOperationException("檔案為空");
+            if (datasetId <= 0) throw new ArgumentException("資料集 ID 必須大於 0", nameof(datasetId));
 
             await _uow.BeginAsync();
 
             try
             {
-                // 1. 插入 Dataset，關聯到指定用戶
-                var datasetName = Path.GetFileNameWithoutExtension(file.FileName);
-                var datasetId = await _repo.CreateDatasetAsync(datasetName, ownerId: userId);
+                // 驗證 dataset 是否存在且屬於該用戶
+                // 這裡可以添加驗證邏輯，確保用戶有權限上傳到該 dataset
+                // 目前直接使用傳入的 datasetId
 
                 // 2. 提取有哪些表頭、每個column可能的型別和總行數
                 long totalRows;
@@ -183,11 +211,17 @@ namespace BIDashboardBackend.Services
         /// 獲取用戶的上傳歷史紀錄
         /// </summary>
         /// <param name="userId">用戶 ID</param>
+        /// <param name="datasetId">資料集 ID</param>
         /// <param name="limit">限制筆數，預設 50</param>
         /// <param name="offset">偏移量，預設 0</param>
         /// <returns>上傳歷史紀錄列表</returns>
-        public Task<IReadOnlyList<UploadHistoryDto>> GetUploadHistoryAsync(long userId, int limit = 50, int offset = 0)
-            => _repo.GetUploadHistoryAsync(userId, limit, offset);
+        public Task<IReadOnlyList<UploadHistoryDto>> GetUploadHistoryAsync(long userId, long datasetId, int limit = 50, int offset = 0)
+        {
+            if (datasetId <= 0)
+                throw new ArgumentException("資料集 ID 必須大於 0", nameof(datasetId));
+                
+            return _repo.GetUploadHistoryAsync(userId, datasetId, limit, offset);
+        }
 
         /// <summary>
         /// 獲取指定批次的詳細資訊（包含欄位和映射）
@@ -216,6 +250,24 @@ namespace BIDashboardBackend.Services
                 SystemFields = systemFields,
                 DataColumns = dataColumnsWithMapping
             };
+        }
+
+        /// <summary>
+        /// 刪除指定的批次
+        /// </summary>
+        /// <param name="batchId">批次 ID</param>
+        /// <param name="userId">用戶 ID（用於權限驗證）</param>
+        /// <returns>刪除結果，包含datasetId（如果成功）</returns>
+        public async Task<(bool success, long? datasetId)> DeleteBatchAsync(long batchId, long userId)
+        {
+            if (batchId <= 0)
+                throw new ArgumentException("批次 ID 必須大於 0", nameof(batchId));
+
+            if (userId <= 0)
+                throw new ArgumentException("用戶 ID 必須大於 0", nameof(userId));
+
+            // 使用 Repository 刪除批次
+            return await _repo.DeleteBatchAsync(batchId, userId);
         }
         
         

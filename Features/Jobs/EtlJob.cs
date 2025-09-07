@@ -32,23 +32,31 @@ namespace BIDashboardBackend.Features.Jobs
         /// 處理單一批次的 ETL 流程
         /// </summary>
         /// <param name="datasetId">資料集識別碼</param>
-        /// <param name="batchId">批次識別碼</param>
+        /// <param name="batchId">批次識別碼，-1表示重新計算整個資料集</param>
         [AutomaticRetry(Attempts = 3)]
         public async Task ProcessBatch(long datasetId, long batchId)
         {
             // 以交易包住整個流程，確保要嘛全部成功、要嘛全部回滾
             await _uow.BeginAsync();
 
-            // A) by-batch：刪除舊資料並依映射重新計算
-            await RebuildByBatchAsync(datasetId, batchId);
+            if (batchId == -1)
+            {
+                // 重新計算整個資料集
+                await RebuildEntireDatasetAsync(datasetId);
+            }
+            else
+            {
+                // A) by-batch：刪除舊資料並依映射重新計算
+                await RebuildByBatchAsync(datasetId, batchId);
 
-            // B) final：只重算受影響的切片並覆寫最終表
-            await UpsertFinalForAffectedAsync(datasetId, batchId);
+                // B) final：只重算受影響的切片並覆寫最終表
+                await UpsertFinalForAffectedAsync(datasetId, batchId);
 
-            // C) 標記批次處理成功
-            await _sql.ExecAsync(
-                "UPDATE dataset_batches SET status='Succeeded', updated_at=NOW() WHERE id=@BatchId",
-                new { BatchId = batchId });
+                // C) 標記批次處理成功
+                await _sql.ExecAsync(
+                    "UPDATE dataset_batches SET status='Succeeded', updated_at=NOW() WHERE id=@BatchId",
+                    new { BatchId = batchId });
+            }
 
             // D) 提交交易，寫入以上所有變更
             await _uow.CommitAsync();
@@ -56,6 +64,21 @@ namespace BIDashboardBackend.Features.Jobs
             // E) 清快取：清除該資料集相關的指標快取
             var cachePrefix = _keyBuilder.MetricPrefix(datasetId);
             await _cache.RemoveByPrefixAsync(cachePrefix);
+        }
+
+        /// <summary>
+        /// 重新計算整個資料集的統計資料
+        /// </summary>
+        private async Task RebuildEntireDatasetAsync(long datasetId)
+        {
+            // 1. 清除該資料集的所有舊統計資料
+            await ClearAllMetricsForDatasetAsync(datasetId);
+
+            // 2. 重新計算所有剩餘批次的統計資料
+            await RecalculateAllBatchesAsync(datasetId);
+
+            // 3. 重新聚合最終統計資料
+            await RebuildFinalMetricsAsync(datasetId);
         }
 
         /// <summary>
@@ -122,5 +145,59 @@ namespace BIDashboardBackend.Features.Jobs
         /// 重新彙總並更新最終統計表
         /// </summary>
         private const string SqlUpsertFinalMetrics = @"SELECT fn_mm_upsert_final_metrics(@DatasetId, @BatchId);";
+
+        /// <summary>
+        /// 清除指定資料集的所有統計資料
+        /// </summary>
+        private async Task ClearAllMetricsForDatasetAsync(long datasetId)
+        {
+            // 清除該資料集的所有 by-batch 統計資料
+            await _sql.ExecAsync("DELETE FROM materialized_metrics_by_batch WHERE dataset_id = @DatasetId", new { DatasetId = datasetId });
+            
+            // 清除該資料集的所有最終統計資料
+            await _sql.ExecAsync("DELETE FROM materialized_metrics WHERE dataset_id = @DatasetId", new { DatasetId = datasetId });
+        }
+
+        /// <summary>
+        /// 重新計算指定資料集的所有剩餘批次
+        /// </summary>
+        private async Task RecalculateAllBatchesAsync(long datasetId)
+        {
+            // 獲取該資料集的所有剩餘批次
+            const string getBatchesSql = @"
+                SELECT id FROM dataset_batches 
+                WHERE dataset_id = @DatasetId AND status = 'Succeeded'
+                ORDER BY id;";
+            
+            var batchIds = await _sql.QueryAsync<long>(getBatchesSql, new { DatasetId = datasetId });
+            
+            // 重新計算每個批次的統計資料
+            foreach (var batchId in batchIds)
+            {
+                await InsertByBatchAsync(datasetId, batchId);
+            }
+        }
+
+        /// <summary>
+        /// 重新建立最終統計資料
+        /// </summary>
+        private async Task RebuildFinalMetricsAsync(long datasetId)
+        {
+            // 重新聚合所有 by-batch 統計資料到最終表
+            const string rebuildFinalSql = @"
+                INSERT INTO materialized_metrics (dataset_id, metric_key, metric_value, period, created_at, updated_at)
+                SELECT 
+                    @datasetId as dataset_id,
+                    metric_key,
+                    SUM(metric_value) as metric_value,
+                    period,
+                    NOW() as created_at,
+                    NOW() as updated_at
+                FROM materialized_metrics_by_batch
+                WHERE dataset_id = @datasetId
+                GROUP BY metric_key, period;";
+            
+            await _sql.ExecAsync(rebuildFinalSql, new { datasetId });
+        }
     }
 }

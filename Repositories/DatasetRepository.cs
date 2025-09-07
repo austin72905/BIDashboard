@@ -294,7 +294,7 @@ FROM UNNEST(@jsons::text[]) AS t(js);";
             return res;
         }
 
-        public async Task<IReadOnlyList<UploadHistoryDto>> GetUploadHistoryAsync(long userId, int limit = 50, int offset = 0)
+        public async Task<IReadOnlyList<UploadHistoryDto>> GetUploadHistoryAsync(long userId, long datasetId, int limit = 50, int offset = 0)
         {
             const string sql = @"
                 SELECT 
@@ -309,11 +309,11 @@ FROM UNNEST(@jsons::text[]) AS t(js);";
                     db.updated_at AS UpdatedAt
                 FROM dataset_batches db
                 INNER JOIN datasets d ON db.dataset_id = d.id
-                WHERE d.owner_id = @userId
+                WHERE d.owner_id = @userId AND db.dataset_id = @datasetId
                 ORDER BY db.created_at DESC
                 LIMIT @limit OFFSET @offset;";
 
-            var batches = await _sql.QueryAsync<UploadHistoryDto>(sql, new { userId, limit, offset });
+            var batches = await _sql.QueryAsync<UploadHistoryDto>(sql, new { userId, datasetId, limit, offset });
             
             // 為每個批次獲取欄位資訊
             var result = new List<UploadHistoryDto>();
@@ -386,6 +386,34 @@ FROM UNNEST(@jsons::text[]) AS t(js);";
 
             var columns = await _sql.QueryAsync<UploadHistoryColumnDto>(sql, new { batchId });
             return columns.ToList();
+        }
+
+        /// <summary>
+        /// 刪除指定的批次（包含相關的欄位、映射和資料行）
+        /// </summary>
+        /// <param name="batchId">批次 ID</param>
+        /// <param name="userId">用戶 ID（用於權限驗證）</param>
+        /// <returns>刪除結果，包含datasetId（如果成功）</returns>
+        public async Task<(bool success, long? datasetId)> DeleteBatchAsync(long batchId, long userId)
+        {
+            // 首先驗證該批次是否屬於該用戶，並獲取dataset_id
+            const string checkSql = @"
+                SELECT db.dataset_id
+                FROM dataset_batches db
+                INNER JOIN datasets d ON db.dataset_id = d.id
+                WHERE db.id = @batchId AND d.owner_id = @userId;";
+            
+            var datasetId = await _sql.ScalarAsync<long?>(checkSql, new { batchId, userId });
+            if (datasetId == null)
+            {
+                return (false, null); // 批次不存在或用戶無權限
+            }
+
+            // 刪除批次（會自動級聯刪除所有相關記錄）
+            const string deleteSql = "DELETE FROM dataset_batches WHERE id = @batchId;";
+            await _sql.ExecAsync(deleteSql, new { batchId });
+            
+            return (true, datasetId);
         }
 
     }
