@@ -301,26 +301,21 @@ namespace BIDashboardBackend.Services
                              .ToList()
             };
 
-            // 性別占比（把未知值歸到 Other）
-            // 注意：GenderShare 的 value 是比例值（0-1），需要轉換為實際數量
-            long male = 0, female = 0, other = 0;
+            // 性別占比（直接使用比例值，不轉換為實際數量）
+            decimal male = 0, female = 0, other = 0;
             var genderRows = rows.Where(r => r.Metric == "GenderShare" && r.Bucket != null).ToList();
             
             if (genderRows.Any())
             {
-                // 計算總數（假設所有性別比例加起來等於 1，或者取最大值作為基準）
-                var totalRatio = genderRows.Sum(r => r.Value);
-                var totalCustomers = SumLong("TotalCustomers"); // 使用總客戶數作為基準
-                
                 foreach (var r in genderRows)
                 {
                     var b = r.Bucket!.Trim().ToLowerInvariant();
-                    // 將比例轉換為實際數量
-                    var actualCount = totalCustomers > 0 ? (long)Math.Round(r.Value * totalCustomers) : (long)Math.Round(r.Value * 1000);
+                    // 直接使用比例值 (0-1)
+                    var ratio = r.Value;
                     
-                    if (b is "m" or "male" or "man" or "boy") male += actualCount;
-                    else if (b is "f" or "female" or "woman" or "girl") female += actualCount;
-                    else other += actualCount;
+                    if (b is "m" or "male" or "man" or "boy") male += ratio;
+                    else if (b is "f" or "female" or "woman" or "girl") female += ratio;
+                    else other += ratio;
                 }
             }
             var gender = new GenderShareDto

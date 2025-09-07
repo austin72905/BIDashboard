@@ -113,6 +113,7 @@ namespace BIDashboardBackend.Controllers
         /// 清除指定資料集的快取（管理員功能）
         /// </summary>
         [HttpDelete("cache/{datasetId}")]
+        [AllowAnonymous]
         public async Task<IActionResult> ClearCache(long datasetId)
         {
             if (datasetId <= 0)
