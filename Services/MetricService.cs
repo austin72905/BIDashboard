@@ -256,17 +256,21 @@ namespace BIDashboardBackend.Services
             };
 
             // 地區分布
+            // 注意：RegionDistribution 的 value 是比例值（0-1），需要轉換為實際數量
+            var regionRows = rows.Where(r => r.Metric == "RegionDistribution" && r.Bucket != null).ToList();
             var region = new RegionDistributionDto
             {
                 DatasetId = datasetId,
-                Points = rows.Where(r => r.Metric == "RegionDistribution" && r.Bucket != null)
-                             .OrderByDescending(r => r.Value).ThenBy(r => r.Bucket)
-                             .Select(r => new RegionDistributionPoint
-                             {
-                                 Name = r.Bucket!,
-                                 Value = (long)Math.Round(r.Value)
-                             })
-                             .ToList()
+                Points = regionRows.Any() ? 
+                    regionRows.OrderByDescending(r => r.Value).ThenBy(r => r.Bucket)
+                              .Select(r => new RegionDistributionPoint
+                              {
+                                  Name = r.Bucket!,
+                                  // 將比例轉換為實際數量
+                                  Value = (long)Math.Round(r.Value * SumLong("TotalCustomers"))
+                              })
+                              .ToList() : 
+                    new List<RegionDistributionPoint>()
             };
 
             // 產品類別銷量
@@ -298,14 +302,26 @@ namespace BIDashboardBackend.Services
             };
 
             // 性別占比（把未知值歸到 Other）
+            // 注意：GenderShare 的 value 是比例值（0-1），需要轉換為實際數量
             long male = 0, female = 0, other = 0;
-            foreach (var r in rows.Where(r => r.Metric == "GenderShare" && r.Bucket != null))
+            var genderRows = rows.Where(r => r.Metric == "GenderShare" && r.Bucket != null).ToList();
+            
+            if (genderRows.Any())
             {
-                var b = r.Bucket!.Trim().ToLowerInvariant();
-                var v = (long)Math.Round(r.Value);
-                if (b is "m" or "male" or "man" or "boy") male += v;
-                else if (b is "f" or "female" or "woman" or "girl") female += v;
-                else other += v;
+                // 計算總數（假設所有性別比例加起來等於 1，或者取最大值作為基準）
+                var totalRatio = genderRows.Sum(r => r.Value);
+                var totalCustomers = SumLong("TotalCustomers"); // 使用總客戶數作為基準
+                
+                foreach (var r in genderRows)
+                {
+                    var b = r.Bucket!.Trim().ToLowerInvariant();
+                    // 將比例轉換為實際數量
+                    var actualCount = totalCustomers > 0 ? (long)Math.Round(r.Value * totalCustomers) : (long)Math.Round(r.Value * 1000);
+                    
+                    if (b is "m" or "male" or "man" or "boy") male += actualCount;
+                    else if (b is "f" or "female" or "woman" or "girl") female += actualCount;
+                    else other += actualCount;
+                }
             }
             var gender = new GenderShareDto
             {

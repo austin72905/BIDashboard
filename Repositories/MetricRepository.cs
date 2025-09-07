@@ -295,85 +295,85 @@ namespace BIDashboardBackend.Repositories
         }
 
         private const string SqlAll = @"
-WITH base AS (
-  SELECT mm.*
-  FROM materialized_metrics mm
-  WHERE mm.dataset_id = @datasetId
-    AND EXISTS (
-      SELECT 1 FROM datasets d
-      WHERE d.id = mm.dataset_id AND d.owner_id = @userId
-    )
-),
-trend_base AS (
-  SELECT date_trunc('month', mm.period)::date AS period, mm.value
-  FROM base mm
-  WHERE mm.metric_key = @kMonthlyRevenueTrend
-    AND mm.period IS NOT NULL
-    AND mm.period >= (date_trunc('month', CURRENT_DATE) - (@months::int - 1) * INTERVAL '1 month')::date
-)
+            WITH base AS (
+              SELECT mm.*
+              FROM materialized_metrics mm
+              WHERE mm.dataset_id = @datasetId
+                AND EXISTS (
+                  SELECT 1 FROM datasets d
+                  WHERE d.id = mm.dataset_id AND d.owner_id = @userId
+                )
+            ),
+            trend_base AS (
+              SELECT date_trunc('month', mm.period)::date AS period, mm.value
+              FROM base mm
+              WHERE mm.metric_key = @kMonthlyRevenueTrend
+                AND mm.period IS NOT NULL
+                AND mm.period >= (date_trunc('month', CURRENT_DATE) - (@months::int - 1) * INTERVAL '1 month')::date
+            )
 
--- KPI（各 1 列；value 統一 numeric 便於 UNION）
-SELECT 'TotalRevenue' AS metric, NULL::text AS bucket, NULL::date AS period,
-       COALESCE(SUM(value),0)::numeric AS value
-FROM base WHERE metric_key = @kTotalRevenue
+            -- KPI（各 1 列；value 統一 numeric 便於 UNION）
+            SELECT 'TotalRevenue' AS metric, NULL::text AS bucket, NULL::date AS period,
+                   COALESCE(SUM(value),0)::numeric AS value
+            FROM base WHERE metric_key = @kTotalRevenue
 
-UNION ALL
-SELECT 'TotalCustomers', NULL, NULL, COALESCE(SUM(value),0)::numeric
-FROM base WHERE metric_key = @kTotalCustomers
+            UNION ALL
+            SELECT 'TotalCustomers', NULL, NULL, COALESCE(SUM(value),0)::numeric
+            FROM base WHERE metric_key = @kTotalCustomers
 
-UNION ALL
-SELECT 'TotalOrders', NULL, NULL, COALESCE(SUM(value),0)::numeric
-FROM base WHERE metric_key = @kTotalOrders
+            UNION ALL
+            SELECT 'TotalOrders', NULL, NULL, COALESCE(SUM(value),0)::numeric
+            FROM base WHERE metric_key = @kTotalOrders
 
-UNION ALL
-SELECT 'AvgOrderValue', NULL, NULL, COALESCE(SUM(value),0)::numeric
-FROM base WHERE metric_key = @kAvgOrderValue
+            UNION ALL
+            SELECT 'AvgOrderValue', NULL, NULL, COALESCE(SUM(value),0)::numeric
+            FROM base WHERE metric_key = @kAvgOrderValue
 
-UNION ALL
-SELECT 'NewCustomers', NULL, NULL, COALESCE(SUM(value),0)::numeric
-FROM base WHERE metric_key = @kNewCustomers AND period >= @since::date
+            UNION ALL
+            SELECT 'NewCustomers', NULL, NULL, COALESCE(SUM(value),0)::numeric
+            FROM base WHERE metric_key = @kNewCustomers AND period >= @since::date
 
-UNION ALL
-SELECT 'ReturningCustomers', NULL, NULL, COALESCE(SUM(value),0)::numeric
-FROM base WHERE metric_key = @kReturningCustomers AND period >= @since::date
+            UNION ALL
+            SELECT 'ReturningCustomers', NULL, NULL, COALESCE(SUM(value),0)::numeric
+            FROM base WHERE metric_key = @kReturningCustomers AND period >= @since::date
 
-UNION ALL
-SELECT 'PendingOrders', NULL, NULL, COALESCE(SUM(value),0)::numeric
-FROM base WHERE metric_key = @kPendingOrders
+            UNION ALL
+            SELECT 'PendingOrders', NULL, NULL, COALESCE(SUM(value),0)::numeric
+            FROM base WHERE metric_key = @kPendingOrders
 
--- 月營收趨勢
-UNION ALL
-SELECT 'MonthlyRevenueTrend', NULL, tb.period, COALESCE(SUM(tb.value),0)::numeric
-FROM trend_base tb
-GROUP BY tb.period
+            -- 月營收趨勢
+            UNION ALL
+            SELECT 'MonthlyRevenueTrend', NULL, tb.period, COALESCE(SUM(tb.value),0)::numeric
+            FROM trend_base tb
+            GROUP BY tb.period
 
--- 分布 / 排行（bucket 分組）
-UNION ALL
-SELECT 'RegionDistribution', mm.bucket, NULL, COALESCE(SUM(mm.value),0)::numeric
-FROM base mm
-WHERE mm.metric_key = @kRegionDistribution AND mm.bucket IS NOT NULL
-GROUP BY mm.bucket
+            -- 分布 / 排行（bucket 分組）
+            UNION ALL
+            SELECT 'RegionDistribution', mm.bucket, NULL, COALESCE(SUM(mm.value),0)::numeric
+            FROM base mm
+            WHERE mm.metric_key = @kRegionDistribution AND mm.bucket IS NOT NULL
+            GROUP BY mm.bucket
 
-UNION ALL
-SELECT 'ProductCategorySales', mm.bucket, NULL, COALESCE(SUM(mm.value),0)::numeric
-FROM base mm
-WHERE mm.metric_key = @kProductCategorySales AND mm.bucket IS NOT NULL
-GROUP BY mm.bucket
+            UNION ALL
+            SELECT 'ProductCategorySales', mm.bucket, NULL, COALESCE(SUM(mm.value),0)::numeric
+            FROM base mm
+            WHERE mm.metric_key = @kProductCategorySales AND mm.bucket IS NOT NULL
+            GROUP BY mm.bucket
 
-UNION ALL
-SELECT 'AgeDistribution', mm.bucket, NULL, COALESCE(SUM(mm.value),0)::numeric
-FROM base mm
-WHERE mm.metric_key = @kAgeDistribution AND mm.bucket IS NOT NULL
-GROUP BY mm.bucket
+            UNION ALL
+            SELECT 'AgeDistribution', mm.bucket, NULL, COALESCE(SUM(mm.value),0)::numeric
+            FROM base mm
+            WHERE mm.metric_key = @kAgeDistribution AND mm.bucket IS NOT NULL
+            GROUP BY mm.bucket
 
-UNION ALL
-SELECT 'GenderShare', mm.bucket, NULL, COALESCE(SUM(mm.value),0)::numeric
-FROM base mm
-WHERE mm.metric_key = @kGenderShare AND mm.bucket IS NOT NULL
-GROUP BY mm.bucket
+            UNION ALL
+            SELECT 'GenderShare', mm.bucket, NULL, COALESCE(SUM(mm.value),0)::numeric
+            FROM base mm
+            WHERE mm.metric_key = @kGenderShare AND mm.bucket IS NOT NULL
+            GROUP BY mm.bucket
 
-ORDER BY metric, period NULLS FIRST, bucket NULLS FIRST;
-";
+            ORDER BY metric, period NULLS FIRST, bucket NULLS FIRST;
+            ";
 
         public async Task<IReadOnlyList<MetricRow>> GetAllMetricsRowsAsync(
             long datasetId, long userId, int months = 12)
