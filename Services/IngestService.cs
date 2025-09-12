@@ -270,6 +270,24 @@ namespace BIDashboardBackend.Services
             return await _repo.DeleteBatchAsync(batchId, userId);
         }
         
+        /// <summary>
+        /// 刪除指定的資料集
+        /// </summary>
+        /// <param name="datasetId">資料集 ID</param>
+        /// <param name="userId">用戶 ID（用於權限驗證）</param>
+        /// <returns>刪除結果</returns>
+        public async Task<bool> DeleteDatasetAsync(long datasetId, long userId)
+        {
+            if (datasetId <= 0)
+                throw new ArgumentException("資料集 ID 必須大於 0", nameof(datasetId));
+
+            if (userId <= 0)
+                throw new ArgumentException("用戶 ID 必須大於 0", nameof(userId));
+
+            // 使用 Repository 刪除資料集
+            return await _repo.DeleteDatasetAsync(datasetId, userId);
+        }
+        
         
     }
 }

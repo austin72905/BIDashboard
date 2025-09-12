@@ -60,5 +60,13 @@ namespace BIDashboardBackend.Interfaces.Repositories
         /// <param name="userId">用戶 ID（用於權限驗證）</param>
         /// <returns>刪除結果，包含datasetId（如果成功）</returns>
         Task<(bool success, long? datasetId)> DeleteBatchAsync(long batchId, long userId);
+        
+        /// <summary>
+        /// 刪除指定的資料集（包含所有相關的批次、欄位、映射和資料行）
+        /// </summary>
+        /// <param name="datasetId">資料集 ID</param>
+        /// <param name="userId">用戶 ID（用於權限驗證）</param>
+        /// <returns>刪除結果</returns>
+        Task<bool> DeleteDatasetAsync(long datasetId, long userId);
     }
 }

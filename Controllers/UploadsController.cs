@@ -54,7 +54,7 @@ namespace BIDashboardBackend.Controllers
         }
 
         [HttpPost("csv")]
-        [DisableRequestSizeLimit]
+        [RequestSizeLimit(10 * 1024 * 1024)] // 10mb
         [Authorize]
         public async Task<IActionResult> UploadCsv([FromForm] UploadCsvDto req, [FromQuery] long datasetId)
         {
@@ -190,6 +190,50 @@ namespace BIDashboardBackend.Controllers
                 }
 
                 return Ok(new { message = "批次刪除成功，正在重新計算指標", batchId, datasetId });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+        
+        /// <summary>
+        /// 刪除指定的資料集
+        /// </summary>
+        /// <param name="datasetId">資料集 ID</param>
+        /// <returns>刪除結果</returns>
+        [HttpDelete("dataset/{datasetId}")]
+        [Authorize]
+        public async Task<IActionResult> DeleteDataset(long datasetId)
+        {
+            // 從 JWT 中提取 user ID
+            var userIdClaim = User.FindFirst("sub") ?? User.FindFirst(ClaimTypes.NameIdentifier);
+            if (userIdClaim == null || !long.TryParse(userIdClaim.Value, out var userId))
+            {
+                return Unauthorized("無效的用戶認證");
+            }
+
+            try
+            {
+                var success = await _svc.DeleteDatasetAsync(datasetId, userId);
+                if (!success)
+                {
+                    return NotFound($"找不到資料集 ID: {datasetId} 或您沒有權限刪除該資料集");
+                }
+
+                // 清除相關的快取
+                try
+                {
+                    var cachePrefix = _keyBuilder.MetricPrefix(datasetId);
+                    await _cache.RemoveByPrefixAsync(cachePrefix);
+                }
+                catch (Exception cacheEx)
+                {
+                    // 快取清除失敗不應該影響刪除操作的成功
+                    Console.WriteLine($"清除快取失敗: {cacheEx.Message}");
+                }
+
+                return Ok(new { message = "資料集刪除成功", datasetId });
             }
             catch (ArgumentException ex)
             {

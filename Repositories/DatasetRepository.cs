@@ -415,6 +415,25 @@ FROM UNNEST(@jsons::text[]) AS t(js);";
             
             return (true, datasetId);
         }
+        
+        /// <summary>
+        /// 刪除指定的資料集（包含所有相關的批次、欄位、映射和資料行）
+        /// </summary>
+        /// <param name="datasetId">資料集 ID</param>
+        /// <param name="userId">用戶 ID（用於權限驗證）</param>
+        /// <returns>刪除結果</returns>
+        public async Task<bool> DeleteDatasetAsync(long datasetId, long userId)
+        {
+            // 合併驗證和刪除為一個語句，只有當資料集屬於該用戶時才會刪除
+            const string deleteSql = @"
+                DELETE FROM datasets 
+                WHERE id = @datasetId AND owner_id = @userId;";
+            
+            var affectedRows = await _sql.ExecAsync(deleteSql, new { datasetId, userId });
+            
+            // 如果影響的行數大於0，表示刪除成功
+            return affectedRows > 0;
+        }
 
     }
 
