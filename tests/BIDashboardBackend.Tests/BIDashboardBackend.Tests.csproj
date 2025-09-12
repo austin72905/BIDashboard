@@ -23,13 +23,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\BIDashboardBackend\BIDashboardBackend.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
     <Using Include="NUnit.Framework" />
     <Using Include="FluentAssertions" />
     <Using Include="Moq" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\source\BIDashboardBackend\BIDashboardBackend.csproj" />
   </ItemGroup>
 
 </Project>
