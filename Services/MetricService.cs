@@ -231,12 +231,19 @@ namespace BIDashboardBackend.Services
 
             var now = DateTime.UtcNow;
 
+            // 判斷是否有 customerid mapping（通過檢查 TotalCustomers 是否為 0）
+            var totalCustomersRaw = SumLong("TotalCustomers");
+            var hasCustomerMapping = totalCustomersRaw > 0;
+
             // KPI 組裝
             var kpi = new KpiSummaryDto
             {
                 DatasetId = datasetId,
                 TotalRevenue = SumDec("TotalRevenue"),
-                TotalCustomers = SumLong("TotalCustomers"),
+                // 根據是否有 customerid mapping 決定總客戶數的計算方式
+                TotalCustomers = hasCustomerMapping ? 
+                    totalCustomersRaw : // 有 mapping：使用去重後的客戶數
+                    SumLong("TotalOrders"), // 沒有 mapping：使用總筆數（訂單數）
                 TotalOrders = SumLong("TotalOrders"),
                 AvgOrderValue = SumDec("AvgOrderValue"),
                 NewCustomers = SumLong("NewCustomers"),
@@ -256,7 +263,7 @@ namespace BIDashboardBackend.Services
             };
 
             // 地區分布
-            // 注意：RegionDistribution 的 value 是比例值（0-1），需要轉換為實際數量
+            // 注意：RegionDistribution 的 value 是比例值（0-1），直接轉換為百分比
             var regionRows = rows.Where(r => r.Metric == "RegionDistribution" && r.Bucket != null).ToList();
             var region = new RegionDistributionDto
             {
@@ -266,8 +273,8 @@ namespace BIDashboardBackend.Services
                               .Select(r => new RegionDistributionPoint
                               {
                                   Name = r.Bucket!,
-                                  // 將比例轉換為實際數量
-                                  Value = (long)Math.Round(r.Value * SumLong("TotalCustomers"))
+                                  // 直接返回百分比（0-1 轉換為 0-100）
+                                  Value = (long)Math.Round(r.Value * 100, 2)
                               })
                               .ToList() : 
                     new List<RegionDistributionPoint>()
