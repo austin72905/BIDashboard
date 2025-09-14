@@ -19,6 +19,10 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Configuration
+    .AddJsonFile("appsettings.json")
+    .AddEnvironmentVariables();
+
 // ===== 註冊服務 =====
 
 // 建立資料庫連線的工作階段
@@ -117,6 +121,8 @@ builder.Services.AddCors(options =>
               .AllowCredentials();
     });
 });
+
+
 
 var app = builder.Build();
 
