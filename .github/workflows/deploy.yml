@@ -1,0 +1,41 @@
+name: CI/CD for BI Dashboard Backend
+
+on:
+  push:
+    branches:
+      - main  # 改為 main 分支（現代 Git 標準）
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: 檢出程式碼
+      - name: Check out code
+        uses: actions/checkout@v4  # 更新到最新版本
+
+      # Step 2: 設定 .NET 環境
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4  # 更新到最新版本
+        with:
+          dotnet-version: '8.0'
+
+      # Step 3: 恢復主專案 NuGet 套件
+      - name: Restore main project dependencies
+        run: dotnet restore ./source/BIDashboardBackend/BIDashboardBackend.csproj
+
+      # Step 4: 恢復測試專案 NuGet 套件
+      - name: Restore test project dependencies
+        run: dotnet restore ./tests/BIDashboardBackend.Tests/BIDashboardBackend.Tests.csproj
+
+      # Step 5: 建置主專案
+      - name: Build main project
+        run: dotnet build ./source/BIDashboardBackend/BIDashboardBackend.csproj --configuration Release --no-restore
+
+      # Step 6: 建置測試專案
+      - name: Build test project
+        run: dotnet build ./tests/BIDashboardBackend.Tests/BIDashboardBackend.Tests.csproj --configuration Release --no-restore
+
+      # Step 7: 執行 BIDashboardBackend.Tests 測試
+      - name: Run BIDashboardBackend.Tests
+        run: dotnet test ./tests/BIDashboardBackend.Tests/BIDashboardBackend.Tests.csproj --configuration Release --no-build --verbosity normal --collect:"XPlat Code Coverage"
