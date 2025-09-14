@@ -200,6 +200,8 @@ namespace BIDashboardBackend.Tests.Services
             var batchId = 1L;
             var totalRows = 3L; // 實際的資料行數
 
+            _mockRepository.Setup(x => x.GetBatchCountByDatasetAsync(datasetId))
+                          .ReturnsAsync(0); // 資料集目前有 0 個批次
             _mockUnitOfWork.Setup(x => x.BeginAsync()).Returns(Task.CompletedTask);
             _mockUnitOfWork.Setup(x => x.CommitAsync()).Returns(Task.CompletedTask);
             
@@ -222,6 +224,7 @@ namespace BIDashboardBackend.Tests.Services
             result.TotalRows.Should().Be(totalRows);
             result.Status.Should().Be("Pending");
 
+            _mockRepository.Verify(x => x.GetBatchCountByDatasetAsync(datasetId), Times.Once);
             _mockUnitOfWork.Verify(x => x.BeginAsync(), Times.Once);
             _mockUnitOfWork.Verify(x => x.CommitAsync(), Times.Once);
             _mockRepository.Verify(x => x.CreateBatchAsync(datasetId, "test.csv", totalRows), Times.Once);
@@ -277,6 +280,8 @@ namespace BIDashboardBackend.Tests.Services
             var userId = 1L;
             var datasetId = 1L;
 
+            _mockRepository.Setup(x => x.GetBatchCountByDatasetAsync(datasetId))
+                          .ReturnsAsync(0); // 資料集目前有 0 個批次
             _mockUnitOfWork.Setup(x => x.BeginAsync()).Returns(Task.CompletedTask);
             _mockUnitOfWork.Setup(x => x.RollbackAsync()).Returns(Task.CompletedTask);
             
@@ -288,10 +293,84 @@ namespace BIDashboardBackend.Tests.Services
             Assert.ThrowsAsync<Exception>(() => 
                 _service.UploadCsvAsync(mockFile.Object, userId, datasetId));
 
+            _mockRepository.Verify(x => x.GetBatchCountByDatasetAsync(datasetId), Times.Once);
             _mockUnitOfWork.Verify(x => x.BeginAsync(), Times.Once);
             _mockUnitOfWork.Verify(x => x.RollbackAsync(), Times.Once);
             _mockUnitOfWork.Verify(x => x.CommitAsync(), Times.Never);
             return Task.CompletedTask;
+        }
+
+        [Test]
+        public async Task UploadCsvAsync_WithMaxBatchesReached_ShouldThrowInvalidOperationException()
+        {
+            // Arrange
+            var csvContent = "name,age\nJohn,25\nJane,30";
+            var csvBytes = System.Text.Encoding.UTF8.GetBytes(csvContent);
+            var mockFile = new Mock<IFormFile>();
+            
+            mockFile.Setup(f => f.Length).Returns(csvBytes.Length);
+            mockFile.Setup(f => f.FileName).Returns("test.csv");
+            mockFile.Setup(f => f.OpenReadStream()).Returns(new MemoryStream(csvBytes));
+
+            var userId = 1L;
+            var datasetId = 1L;
+
+            _mockRepository.Setup(x => x.GetBatchCountByDatasetAsync(datasetId))
+                          .ReturnsAsync(5); // 資料集已達到最大限制（5 個批次）
+
+            // Act & Assert
+            var exception = Assert.ThrowsAsync<InvalidOperationException>(() => 
+                _service.UploadCsvAsync(mockFile.Object, userId, datasetId));
+            
+            exception.Message.Should().Be("每個資料集最多只能上傳 5 個檔案，此資料集目前已有 5 個檔案");
+            
+            _mockRepository.Verify(x => x.GetBatchCountByDatasetAsync(datasetId), Times.Once);
+            _mockRepository.Verify(x => x.CreateBatchAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<long>()), Times.Never);
+        }
+
+        [Test]
+        public async Task UploadCsvAsync_WithFourBatches_ShouldAllowFifthBatch()
+        {
+            // Arrange
+            var csvContent = "name,age\nJohn,25\nJane,30";
+            var csvBytes = System.Text.Encoding.UTF8.GetBytes(csvContent);
+            var mockFile = new Mock<IFormFile>();
+            
+            mockFile.Setup(f => f.Length).Returns(csvBytes.Length);
+            mockFile.Setup(f => f.FileName).Returns("test.csv");
+            mockFile.Setup(f => f.OpenReadStream()).Returns(new MemoryStream(csvBytes));
+
+            var userId = 1L;
+            var datasetId = 1L;
+            var batchId = 5L;
+            var totalRows = 2L;
+
+            _mockRepository.Setup(x => x.GetBatchCountByDatasetAsync(datasetId))
+                          .ReturnsAsync(4); // 資料集目前有 4 個批次，還可以上傳 1 個
+            _mockUnitOfWork.Setup(x => x.BeginAsync()).Returns(Task.CompletedTask);
+            _mockUnitOfWork.Setup(x => x.CommitAsync()).Returns(Task.CompletedTask);
+            
+            _mockRepository.Setup(x => x.CreateBatchAsync(datasetId, "test.csv", totalRows))
+                          .ReturnsAsync(batchId);
+            
+            _mockRepository.Setup(x => x.UpsertColumnsAsync(batchId, It.IsAny<IEnumerable<DatasetColumn>>()))
+                          .ReturnsAsync(2);
+            
+            _mockRepository.Setup(x => x.BulkCopyRowsAsync(batchId, It.IsAny<Stream>(), It.IsAny<CancellationToken>()))
+                          .ReturnsAsync(totalRows);
+
+            // Act
+            var result = await _service.UploadCsvAsync(mockFile.Object, userId, datasetId);
+
+            // Assert
+            result.Should().NotBeNull();
+            result.BatchId.Should().Be(batchId);
+            result.FileName.Should().Be("test.csv");
+            result.TotalRows.Should().Be(totalRows);
+            result.Status.Should().Be("Pending");
+            
+            _mockRepository.Verify(x => x.GetBatchCountByDatasetAsync(datasetId), Times.Once);
+            _mockRepository.Verify(x => x.CreateBatchAsync(datasetId, "test.csv", totalRows), Times.Once);
         }
 
         #endregion

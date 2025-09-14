@@ -61,6 +61,13 @@ namespace BIDashboardBackend.Interfaces.Repositories
         Task<int> GetDatasetCountByUserAsync(long userId);
         
         /// <summary>
+        /// 取得特定資料集的批次數量
+        /// </summary>
+        /// <param name="datasetId">資料集 ID</param>
+        /// <returns>批次數量</returns>
+        Task<int> GetBatchCountByDatasetAsync(long datasetId);
+        
+        /// <summary>
         /// 刪除指定的批次（包含相關的欄位、映射和資料行）
         /// </summary>
         /// <param name="batchId">批次 ID</param>

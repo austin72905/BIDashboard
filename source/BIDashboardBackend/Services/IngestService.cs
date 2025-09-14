@@ -68,6 +68,14 @@ namespace BIDashboardBackend.Services
             if (file.Length == 0) throw new InvalidOperationException("檔案為空");
             if (datasetId <= 0) throw new ArgumentException("資料集 ID 必須大於 0", nameof(datasetId));
 
+            // 檢查資料集的批次數量限制（每個資料集最多 5 個批次）
+            const int maxBatchesPerDataset = 5;
+            var currentBatchCount = await _repo.GetBatchCountByDatasetAsync(datasetId);
+            if (currentBatchCount >= maxBatchesPerDataset)
+            {
+                throw new InvalidOperationException($"每個資料集最多只能上傳 {maxBatchesPerDataset} 個檔案，此資料集目前已有 {currentBatchCount} 個檔案");
+            }
+
             await _uow.BeginAsync();
 
             try
