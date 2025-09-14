@@ -39,3 +39,18 @@ jobs:
       # Step 7: 執行 BIDashboardBackend.Tests 測試
       - name: Run BIDashboardBackend.Tests
         run: dotnet test ./tests/BIDashboardBackend.Tests/BIDashboardBackend.Tests.csproj --configuration Release --no-build --verbosity normal --collect:"XPlat Code Coverage"
+        
+      # 登入 Docker Hub
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # 建立 & 推送 Docker image
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/bidashboard-backend:latest
