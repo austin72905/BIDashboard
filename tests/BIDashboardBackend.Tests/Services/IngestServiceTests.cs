@@ -52,6 +52,8 @@ namespace BIDashboardBackend.Tests.Services
             var description = "測試描述";
             var expectedDatasetId = 1L;
 
+            _mockRepository.Setup(x => x.GetDatasetCountByUserAsync(userId))
+                          .ReturnsAsync(0); // 用戶目前有 0 個資料集
             _mockRepository.Setup(x => x.CreateDatasetAsync(datasetName, userId))
                           .ReturnsAsync(expectedDatasetId);
 
@@ -65,6 +67,7 @@ namespace BIDashboardBackend.Tests.Services
             result.Description.Should().Be(description);
             result.CreatedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(5));
             
+            _mockRepository.Verify(x => x.GetDatasetCountByUserAsync(userId), Times.Once);
             _mockRepository.Verify(x => x.CreateDatasetAsync(datasetName, userId), Times.Once);
         }
 
@@ -126,6 +129,54 @@ namespace BIDashboardBackend.Tests.Services
             
             exception.Message.Should().Be("用戶 ID 必須大於 0 (Parameter 'userId')");
             exception.ParamName.Should().Be("userId");
+        }
+
+        [Test]
+        public async Task CreateDatasetAsync_WithMaxDatasetsReached_ShouldThrowInvalidOperationException()
+        {
+            // Arrange
+            var datasetName = "測試資料集";
+            var userId = 1L;
+            var description = "測試描述";
+
+            _mockRepository.Setup(x => x.GetDatasetCountByUserAsync(userId))
+                          .ReturnsAsync(2); // 用戶已達到最大限制（2 個資料集）
+
+            // Act & Assert
+            var exception = Assert.ThrowsAsync<InvalidOperationException>(() => 
+                _service.CreateDatasetAsync(datasetName, userId, description));
+            
+            exception.Message.Should().Be("每個用戶最多只能創建 2 個資料集，您目前已有 2 個資料集");
+            
+            _mockRepository.Verify(x => x.GetDatasetCountByUserAsync(userId), Times.Once);
+            _mockRepository.Verify(x => x.CreateDatasetAsync(It.IsAny<string>(), It.IsAny<long>()), Times.Never);
+        }
+
+        [Test]
+        public async Task CreateDatasetAsync_WithOneDataset_ShouldAllowSecondDataset()
+        {
+            // Arrange
+            var datasetName = "第二個資料集";
+            var userId = 1L;
+            var description = "測試描述";
+            var expectedDatasetId = 2L;
+
+            _mockRepository.Setup(x => x.GetDatasetCountByUserAsync(userId))
+                          .ReturnsAsync(1); // 用戶目前有 1 個資料集，還可以創建 1 個
+            _mockRepository.Setup(x => x.CreateDatasetAsync(datasetName, userId))
+                          .ReturnsAsync(expectedDatasetId);
+
+            // Act
+            var result = await _service.CreateDatasetAsync(datasetName, userId, description);
+
+            // Assert
+            result.Should().NotBeNull();
+            result.DatasetId.Should().Be(expectedDatasetId);
+            result.Name.Should().Be(datasetName);
+            result.Description.Should().Be(description);
+            
+            _mockRepository.Verify(x => x.GetDatasetCountByUserAsync(userId), Times.Once);
+            _mockRepository.Verify(x => x.CreateDatasetAsync(datasetName, userId), Times.Once);
         }
 
         #endregion

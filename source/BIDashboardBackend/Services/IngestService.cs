@@ -42,6 +42,14 @@ namespace BIDashboardBackend.Services
             if (userId <= 0)
                 throw new ArgumentException("用戶 ID 必須大於 0", nameof(userId));
 
+            // 檢查用戶的資料集數量限制（每個用戶最多 2 個資料集）
+            const int maxDatasetsPerUser = 2;
+            var currentCount = await _repo.GetDatasetCountByUserAsync(userId);
+            if (currentCount >= maxDatasetsPerUser)
+            {
+                throw new InvalidOperationException($"每個用戶最多只能創建 {maxDatasetsPerUser} 個資料集，您目前已有 {currentCount} 個資料集");
+            }
+
             // 使用 Repository 創建資料集
             var datasetId = await _repo.CreateDatasetAsync(datasetName, ownerId: userId);
             

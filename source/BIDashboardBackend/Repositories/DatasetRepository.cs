@@ -371,6 +371,21 @@ FROM UNNEST(@jsons::text[]) AS t(js);";
             return _sql.QueryAsync<long>(sql, new { userId });
         }
 
+        /// <summary>
+        /// 取得用戶的資料集數量
+        /// </summary>
+        /// <param name="userId">用戶 ID</param>
+        /// <returns>資料集數量</returns>
+        public Task<int> GetDatasetCountByUserAsync(long userId)
+        {
+            const string sql = @"
+                SELECT COUNT(*)
+                FROM datasets
+                WHERE owner_id = @userId;";
+
+            return _sql.ScalarAsync<int>(sql, new { userId });
+        }
+
         private async Task<IReadOnlyList<UploadHistoryColumnDto>> GetBatchColumnsWithMappingAsync(long batchId)
         {
             const string sql = @"
