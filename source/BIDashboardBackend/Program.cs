@@ -13,11 +13,20 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using Serilog;                       // Serilog 日誌
 using StackExchange.Redis;           // Redis 連線套件
 using System.Text;
 
 
 var builder = WebApplication.CreateBuilder(args);
+
+// 配置 Serilog
+builder.Host.UseSerilog((context, services, configuration) =>
+{
+    configuration
+        .ReadFrom.Configuration(context.Configuration)
+        .ReadFrom.Services(services);
+});
 
 builder.Configuration
     .AddJsonFile("appsettings.json")

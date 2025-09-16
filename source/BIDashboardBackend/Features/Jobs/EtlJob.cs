@@ -1,6 +1,7 @@
 using BIDashboardBackend.Caching;
 using BIDashboardBackend.Interfaces;
 using Hangfire;
+using Microsoft.Extensions.Logging;
 
 namespace BIDashboardBackend.Features.Jobs
 {
@@ -16,16 +17,20 @@ namespace BIDashboardBackend.Features.Jobs
         // 清除快取所需的工具與服務
         private readonly CacheKeyBuilder _keyBuilder;
         private readonly ICacheService _cache;
+        
+        // 日誌服務
+        private readonly ILogger<EtlJob> _logger;
 
         /// <summary>
         /// 建構子：注入資料庫與快取相關服務
         /// </summary>
-        public EtlJob(IUnitOfWork uow, ISqlRunner sql, CacheKeyBuilder keyBuilder, ICacheService cache)
+        public EtlJob(IUnitOfWork uow, ISqlRunner sql, CacheKeyBuilder keyBuilder, ICacheService cache, ILogger<EtlJob> logger)
         {
             _sql = sql;
             _uow = uow;
             _keyBuilder = keyBuilder;
             _cache = cache;
+            _logger = logger;
         }
 
         /// <summary>
@@ -36,35 +41,74 @@ namespace BIDashboardBackend.Features.Jobs
         [AutomaticRetry(Attempts = 3)]
         public async Task ProcessBatch(long datasetId, long batchId)
         {
-            // 以交易包住整個流程，確保要嘛全部成功、要嘛全部回滾
-            await _uow.BeginAsync();
+            var startTime = DateTime.UtcNow;
+            _logger.LogInformation("開始處理批次 - DatasetId: {DatasetId}, BatchId: {BatchId}, 時間: {StartTime}", 
+                datasetId, batchId, startTime);
 
-            if (batchId == -1)
+            try
             {
-                // 重新計算整個資料集
-                //await RebuildEntireDatasetAsync(datasetId);
-                await UpsertFinalForAffectedAsync(datasetId, batchId);
+                // 以交易包住整個流程，確保要嘛全部成功、要嘛全部回滾
+                await _uow.BeginAsync();
+                _logger.LogDebug("已開始資料庫交易 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
+
+                if (batchId == -1)
+                {
+                    _logger.LogInformation("重新計算整個資料集 - DatasetId: {DatasetId}", datasetId);
+                    // 重新計算整個資料集
+                    //await RebuildEntireDatasetAsync(datasetId);
+                    await UpsertFinalForAffectedAsync(datasetId, batchId);
+                    _logger.LogInformation("重新計算整個資料集完成 - DatasetId: {DatasetId}", datasetId);
+                }
+                else
+                {
+                    // A) by-batch：刪除舊資料並依映射重新計算
+                    _logger.LogDebug("開始 RebuildByBatch - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
+                    await RebuildByBatchAsync(datasetId, batchId);
+                    _logger.LogInformation("RebuildByBatch 成功 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
+
+                    // B) final：重新計算整個 dataset 的所有指標
+                    _logger.LogDebug("開始 UpsertFinalForAffected - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
+                    await UpsertFinalForAffectedAsync(datasetId, batchId);
+                    _logger.LogInformation("UpsertFinalForAffected 成功 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
+
+                    // C) 標記批次處理成功
+                    _logger.LogDebug("更新批次狀態為成功 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
+                    await _sql.ExecAsync(
+                        "UPDATE dataset_batches SET status='Succeeded', updated_at=NOW() WHERE id=@BatchId",
+                        new { BatchId = batchId });
+                    _logger.LogInformation("Dataset batch 更新狀態成功 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
+                }
+
+                // D) 提交交易，寫入以上所有變更
+                await _uow.CommitAsync();
+                _logger.LogInformation("Commit 成功 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
+
+                // E) 清快取：清除該資料集相關的指標快取
+                var cachePrefix = _keyBuilder.MetricPrefix(datasetId);
+                await _cache.RemoveByPrefixAsync(cachePrefix);
+                _logger.LogDebug("快取清除完成 - DatasetId: {DatasetId}, CachePrefix: {CachePrefix}", datasetId, cachePrefix);
+
+                var endTime = DateTime.UtcNow;
+                var duration = endTime - startTime;
+                _logger.LogInformation("批次處理完成 - DatasetId: {DatasetId}, BatchId: {BatchId}, 耗時: {Duration}ms", 
+                    datasetId, batchId, duration.TotalMilliseconds);
             }
-            else
+            catch (Exception ex)
             {
-                // A) by-batch：刪除舊資料並依映射重新計算
-                await RebuildByBatchAsync(datasetId, batchId);
-
-                // B) final：重新計算整個 dataset 的所有指標
-                await UpsertFinalForAffectedAsync(datasetId, batchId);
-
-                // C) 標記批次處理成功
-                await _sql.ExecAsync(
-                    "UPDATE dataset_batches SET status='Succeeded', updated_at=NOW() WHERE id=@BatchId",
-                    new { BatchId = batchId });
+                _logger.LogError(ex, "批次處理失敗，進行 rollback - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
+                
+                try
+                {
+                    await _uow.RollbackAsync();
+                    _logger.LogInformation("Rollback 成功 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
+                }
+                catch (Exception rollbackEx)
+                {
+                    _logger.LogError(rollbackEx, "Rollback 失敗 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
+                }
+                
+                throw; // 重新拋出原始異常
             }
-
-            // D) 提交交易，寫入以上所有變更
-            await _uow.CommitAsync();
-
-            // E) 清快取：清除該資料集相關的指標快取
-            var cachePrefix = _keyBuilder.MetricPrefix(datasetId);
-            await _cache.RemoveByPrefixAsync(cachePrefix);
         }
 
         /// <summary>
@@ -108,8 +152,10 @@ namespace BIDashboardBackend.Features.Jobs
         /// </summary>
         private async Task ClearOldByBatchAsync(long datasetId, long batchId)
         {
+            _logger.LogDebug("開始清除舊的 by-batch 統計資料 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
             // 呼叫 fn_mm_clear_old_by_batch 刪除舊的 by-batch 統計值
             await _sql.ExecAsync(SqlClearOldByBatch, new { DatasetId = datasetId, BatchId = batchId });
+            _logger.LogDebug("清除舊的 by-batch 統計資料完成 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
         }
 
         /// <summary>
@@ -117,8 +163,10 @@ namespace BIDashboardBackend.Features.Jobs
         /// </summary>
         private async Task InsertByBatchAsync(long datasetId, long batchId)
         {
+            _logger.LogDebug("開始寫入新的 by-batch 統計值 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
             // 呼叫 fn_mm_insert_metrics_by_batch 解析並寫入統計值
             await _sql.ExecAsync(SqlInsertByBatch, new { DatasetId = datasetId, BatchId = batchId });
+            _logger.LogDebug("寫入新的 by-batch 統計值完成 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
         }
 
         /// <summary>
@@ -126,8 +174,10 @@ namespace BIDashboardBackend.Features.Jobs
         /// </summary>
         private async Task UpsertFinalMetricsAsync(long datasetId, long batchId)
         {
+            _logger.LogDebug("開始更新最終統計表 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
             // 呼叫 fn_mm_upsert_final_metrics 將 by-batch 統計整合到最終表
             await _sql.ExecAsync(SqlUpsertFinalMetrics, new { DatasetId = datasetId, BatchId = batchId });
+            _logger.LogDebug("更新最終統計表完成 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
         }
 
         // 以下 SQL 常數對應資料庫中的函式呼叫

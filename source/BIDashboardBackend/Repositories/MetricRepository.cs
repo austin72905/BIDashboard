@@ -3,13 +3,20 @@ using BIDashboardBackend.Enums;
 using BIDashboardBackend.Interfaces;
 using BIDashboardBackend.Interfaces.Repositories;
 using BIDashboardBackend.Models;
+using Microsoft.Extensions.Logging;
 
 namespace BIDashboardBackend.Repositories
 {
     public sealed class MetricRepository : IMetricRepository
     {
         private readonly ISqlRunner _sql;
-        public MetricRepository(ISqlRunner sql) => _sql = sql;
+        private readonly ILogger<MetricRepository> _logger;
+        
+        public MetricRepository(ISqlRunner sql, ILogger<MetricRepository> logger)
+        {
+            _sql = sql;
+            _logger = logger;
+        }
 
         // 將 enum 轉為資料表中的 int metric_key
         private static int Key(MetricKey k) => (int)k;
@@ -18,17 +25,29 @@ namespace BIDashboardBackend.Repositories
 
         public async Task<decimal> GetTotalRevenueAsync(long datasetId,long userId)
         {
-            // revenue 可能被切成多 bucket（例如月份），統計時以 SUM(value)
-            const string sql = @"
-                SELECT COALESCE(SUM(mm.value), 0)::numeric
-                FROM materialized_metrics mm
-                WHERE mm.dataset_id = @datasetId AND mm.metric_key = @metricKey 
-                AND EXISTS(
-                    SELECT 1 FROM datasets d
-                    WHERE d.id = @datasetId AND d.owner_id = @userId
-                );";
-            var v = await _sql.ScalarAsync<decimal>(sql, new { datasetId, userId ,metricKey = Key(MetricKey.TotalRevenue) });
-            return v;
+            try
+            {
+                _logger.LogDebug("執行 GetTotalRevenue 查詢 - DatasetId: {DatasetId}, UserId: {UserId}", datasetId, userId);
+                
+                // revenue 可能被切成多 bucket（例如月份），統計時以 SUM(value)
+                const string sql = @"
+                    SELECT COALESCE(SUM(mm.value), 0)::numeric
+                    FROM materialized_metrics mm
+                    WHERE mm.dataset_id = @datasetId AND mm.metric_key = @metricKey 
+                    AND EXISTS(
+                        SELECT 1 FROM datasets d
+                        WHERE d.id = @datasetId AND d.owner_id = @userId
+                    );";
+                var v = await _sql.ScalarAsync<decimal>(sql, new { datasetId, userId ,metricKey = Key(MetricKey.TotalRevenue) });
+                
+                _logger.LogDebug("GetTotalRevenue 查詢完成 - DatasetId: {DatasetId}, 結果: {Value}", datasetId, v);
+                return v;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "GetTotalRevenue 查詢失敗 - DatasetId: {DatasetId}, UserId: {UserId}", datasetId, userId);
+                throw;
+            }
         }
 
         public async Task<long> GetTotalCustomersAsync(long datasetId, long userId)
@@ -378,33 +397,51 @@ namespace BIDashboardBackend.Repositories
         public async Task<IReadOnlyList<MetricRow>> GetAllMetricsRowsAsync(
             long datasetId, long userId, int months = 12)
         {
-            // 月份視窗的起點（本月往前 months-1 個月的月初）
-            var today = DateTime.UtcNow.Date;
-            var since = new DateTime(today.Year, today.Month, 1).AddMonths(-(months - 1));
+            _logger.LogDebug("開始執行 GetAllMetricsRows 查詢 - DatasetId: {DatasetId}, UserId: {UserId}, Months: {Months}", 
+                datasetId, userId, months);
 
-            var args = new
+            try
             {
-                datasetId,
-                userId,
-                months,
-                since,
-                kTotalRevenue = Key(MetricKey.TotalRevenue),
-                kTotalCustomers = Key(MetricKey.TotalCustomers),
-                kTotalOrders = Key(MetricKey.TotalOrders),
-                kAvgOrderValue = Key(MetricKey.AvgOrderValue),
-                kNewCustomers = Key(MetricKey.NewCustomers),
-                kReturningCustomers = Key(MetricKey.ReturningCustomers),
-                kPendingOrders = Key(MetricKey.PendingOrders),
-                kMonthlyRevenueTrend = Key(MetricKey.MonthlyRevenueTrend),
-                kRegionDistribution = Key(MetricKey.RegionDistribution),
-                kProductCategorySales = Key(MetricKey.ProductCategorySales),
-                kAgeDistribution = Key(MetricKey.AgeDistribution),
-                kGenderShare = Key(MetricKey.GenderShare),
-            };
+                // 月份視窗的起點（本月往前 months-1 個月的月初）
+                var today = DateTime.UtcNow.Date;
+                var since = new DateTime(today.Year, today.Month, 1).AddMonths(-(months - 1));
 
-            // 單次往返、單連線
-            var rows = await _sql.QueryAsync<MetricRow>(SqlAll, args);
-            return rows.ToList();
+                var args = new
+                {
+                    datasetId,
+                    userId,
+                    months,
+                    since,
+                    kTotalRevenue = Key(MetricKey.TotalRevenue),
+                    kTotalCustomers = Key(MetricKey.TotalCustomers),
+                    kTotalOrders = Key(MetricKey.TotalOrders),
+                    kAvgOrderValue = Key(MetricKey.AvgOrderValue),
+                    kNewCustomers = Key(MetricKey.NewCustomers),
+                    kReturningCustomers = Key(MetricKey.ReturningCustomers),
+                    kPendingOrders = Key(MetricKey.PendingOrders),
+                    kMonthlyRevenueTrend = Key(MetricKey.MonthlyRevenueTrend),
+                    kRegionDistribution = Key(MetricKey.RegionDistribution),
+                    kProductCategorySales = Key(MetricKey.ProductCategorySales),
+                    kAgeDistribution = Key(MetricKey.AgeDistribution),
+                    kGenderShare = Key(MetricKey.GenderShare),
+                };
+
+                _logger.LogDebug("執行 SQL 查詢 - 查詢參數: {@Args}", args);
+
+                // 單次往返、單連線
+                var rows = await _sql.QueryAsync<MetricRow>(SqlAll, args);
+                var result = rows.ToList();
+                
+                _logger.LogInformation("查詢完成 - DatasetId: {DatasetId}, 回傳筆數: {RowCount}", datasetId, result.Count);
+                
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "GetAllMetricsRows 查詢失敗 - DatasetId: {DatasetId}, UserId: {UserId}, Months: {Months}", 
+                    datasetId, userId, months);
+                throw;
+            }
         }
 
         

@@ -4,6 +4,8 @@ using BIDashboardBackend.Enums;
 using BIDashboardBackend.Interfaces;
 using BIDashboardBackend.Interfaces.Repositories;
 using BIDashboardBackend.Utils;
+using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace BIDashboardBackend.Services
@@ -13,27 +15,41 @@ namespace BIDashboardBackend.Services
         private readonly IMetricRepository _repo;
         private readonly ICacheService _cache;
         private readonly CacheKeyBuilder _keys;
+        private readonly ILogger<MetricService> _logger;
 
-        public MetricService(IMetricRepository repo, ICacheService cache, CacheKeyBuilder keys)
+        public MetricService(IMetricRepository repo, ICacheService cache, CacheKeyBuilder keys, ILogger<MetricService> logger)
         {
             _repo = repo;
             _cache = cache;
             _keys = keys;
+            _logger = logger;
         }
 
         
 
         public async Task<KpiSummaryDto> GetKpiSummaryAsync(long datasetId, long userId)
         {
+            var stopwatch = Stopwatch.StartNew();
             var cacheKey = _keys.MetricKey(datasetId, "kpi-summary");
+            
+            _logger.LogDebug("開始取得 KPI 摘要 - DatasetId: {DatasetId}, UserId: {UserId}, CacheKey: {CacheKey}", 
+                datasetId, userId, cacheKey);
             
             // 優先從快取取資料
             var cached = await _cache.GetStringAsync(cacheKey);
             if (!string.IsNullOrEmpty(cached))
             {
                 var cachedResult = JsonSerializer.Deserialize<KpiSummaryDto>(cached);
-                if (cachedResult != null) return cachedResult;
+                if (cachedResult != null) 
+                {
+                    stopwatch.Stop();
+                    _logger.LogInformation("快取命中 - DatasetId: {DatasetId}, Method: GetKpiSummaryAsync, 耗時: {ElapsedMs}ms", 
+                        datasetId, stopwatch.ElapsedMilliseconds);
+                    return cachedResult;
+                }
             }
+
+            _logger.LogInformation("快取未命中，從資料庫查詢 - DatasetId: {DatasetId}, Method: GetKpiSummaryAsync", datasetId);
 
             // 並行獲取所有 KPI
             var totalRevenueTask = _repo.GetTotalRevenueAsync(datasetId, userId);
@@ -69,6 +85,11 @@ namespace BIDashboardBackend.Services
 
             var jsonResult = JsonSerializer.Serialize(result);
             await _cache.SetStringAsync(cacheKey, jsonResult, TimeSpan.FromMinutes(10));
+            
+            stopwatch.Stop();
+            _logger.LogInformation("資料庫查詢完成並寫入快取 - DatasetId: {DatasetId}, Method: GetKpiSummaryAsync, 耗時: {ElapsedMs}ms", 
+                datasetId, stopwatch.ElapsedMilliseconds);
+            
             return result;
         }
 
@@ -212,14 +233,28 @@ namespace BIDashboardBackend.Services
         public async Task<AllMetricsDto> GetAllMetricsAsync(
             long datasetId, long userId, int months = 12)
         {
+            var stopwatch = Stopwatch.StartNew();
+            
             // 建議把 months 放進快取 key，避免不同視窗互覆
             var cacheKey = _keys.MetricKey(datasetId, $"all-metrics:m{months}");
+            
+            _logger.LogDebug("開始取得所有指標 - DatasetId: {DatasetId}, UserId: {UserId}, Months: {Months}, CacheKey: {CacheKey}", 
+                datasetId, userId, months, cacheKey);
+            
             var cached = await _cache.GetStringAsync(cacheKey);
             if (!string.IsNullOrEmpty(cached))
             {
                 var ok = JsonSerializer.Deserialize<AllMetricsDto>(cached);
-                if (ok is not null) return ok;
+                if (ok is not null) 
+                {
+                    stopwatch.Stop();
+                    _logger.LogInformation("快取命中 - DatasetId: {DatasetId}, Method: GetAllMetricsAsync, 耗時: {ElapsedMs}ms", 
+                        datasetId, stopwatch.ElapsedMilliseconds);
+                    return ok;
+                }
             }
+
+            _logger.LogInformation("快取未命中，從資料庫查詢 - DatasetId: {DatasetId}, Method: GetAllMetricsAsync", datasetId);
 
             // 一次查回所有需要的度量資料（單次往返、單連線）
             var rows = await _repo.GetAllMetricsRowsAsync(datasetId, userId, months);
@@ -347,13 +382,20 @@ namespace BIDashboardBackend.Services
 
             await _cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(result),
                                         TimeSpan.FromMinutes(5));
+            
+            stopwatch.Stop();
+            _logger.LogInformation("資料庫查詢完成並寫入快取 - DatasetId: {DatasetId}, Method: GetAllMetricsAsync, 耗時: {ElapsedMs}ms", 
+                datasetId, stopwatch.ElapsedMilliseconds);
+            
             return result;
         }
 
         public async Task RemoveDatasetCacheAsync(long datasetId)
         {
             var prefix = _keys.MetricPrefix(datasetId);
+            _logger.LogInformation("清除資料集快取 - DatasetId: {DatasetId}, CachePrefix: {CachePrefix}", datasetId, prefix);
             await _cache.RemoveByPrefixAsync(prefix);
+            _logger.LogDebug("資料集快取清除完成 - DatasetId: {DatasetId}", datasetId);
         }
 
         
