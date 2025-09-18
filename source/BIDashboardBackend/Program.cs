@@ -80,6 +80,10 @@ builder.Services.AddScoped<IMetricService, MetricService>();
 builder.Services.AddScoped<IDatasetService, DatasetService>();
 builder.Services.AddScoped<IEtlJob,EtlJob>();
 
+// 安全驗證服務
+builder.Services.AddScoped<IFileValidationService, FileValidationService>();
+builder.Services.AddScoped<IDataSanitizationService, DataSanitizationService>();
+
 // repo
 builder.Services.AddScoped<IDatasetRepository, DatasetRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();

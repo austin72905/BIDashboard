@@ -6,6 +6,7 @@ using BIDashboardBackend.Features.Jobs;
 using BIDashboardBackend.Interfaces;
 using BIDashboardBackend.Interfaces.Repositories;
 using BIDashboardBackend.Models;
+using BIDashboardBackend.Services;
 using Hangfire;
 using System.Data;
 
@@ -17,14 +18,26 @@ namespace BIDashboardBackend.Services
         private readonly IUnitOfWork _uow;
         private readonly CsvSniffer _sniffer;
         private readonly IBackgroundJobClient _jobs;
+        private readonly IFileValidationService _fileValidation;
+        private readonly IDataSanitizationService _dataSanitization;
+        private readonly ILogger<IngestService> _logger;
 
-
-        public IngestService(IDatasetRepository repo, IUnitOfWork uow, IBackgroundJobClient jobs, CsvSniffer sniffer)
+        public IngestService(
+            IDatasetRepository repo, 
+            IUnitOfWork uow, 
+            IBackgroundJobClient jobs, 
+            CsvSniffer sniffer,
+            IFileValidationService fileValidation,
+            IDataSanitizationService dataSanitization,
+            ILogger<IngestService> logger)
         {
             _repo = repo;
             _uow = uow;
             _sniffer = sniffer;
             _jobs = jobs;
+            _fileValidation = fileValidation;
+            _dataSanitization = dataSanitization;
+            _logger = logger;
         }
 
         /// <summary>
@@ -68,7 +81,24 @@ namespace BIDashboardBackend.Services
             if (file.Length == 0) throw new InvalidOperationException("檔案為空");
             if (datasetId <= 0) throw new ArgumentException("資料集 ID 必須大於 0", nameof(datasetId));
 
-            // 檢查資料集的批次數量限制（每個資料集最多 5 個批次）
+            _logger.LogInformation("開始處理 CSV 檔案上傳: {FileName}, 用戶: {UserId}, 資料集: {DatasetId}", 
+                file.FileName, userId, datasetId);
+
+            // 1. 執行完整的檔案安全驗證
+            var validationResult = await _fileValidation.ValidateCsvFileAsync(file);
+            if (!validationResult.IsValid)
+            {
+                _logger.LogWarning("檔案驗證失敗: {FileName}, 錯誤: {Error}", file.FileName, validationResult.ErrorMessage);
+                throw new InvalidOperationException($"檔案驗證失敗: {validationResult.ErrorMessage}");
+            }
+
+            // 記錄驗證警告
+            foreach (var warning in validationResult.Warnings)
+            {
+                _logger.LogWarning("檔案驗證警告: {FileName}, 警告: {Warning}", file.FileName, warning);
+            }
+
+            // 2. 檢查資料集的批次數量限制（每個資料集最多 5 個批次）
             const int maxBatchesPerDataset = 5;
             var currentBatchCount = await _repo.GetBatchCountByDatasetAsync(datasetId);
             if (currentBatchCount >= maxBatchesPerDataset)
@@ -80,11 +110,10 @@ namespace BIDashboardBackend.Services
 
             try
             {
-                // 驗證 dataset 是否存在且屬於該用戶
-                // 這裡可以添加驗證邏輯，確保用戶有權限上傳到該 dataset
-                // 目前直接使用傳入的 datasetId
-
-                // 2. 提取有哪些表頭、每個column可能的型別和總行數
+                // 3. 清理檔案名稱
+                var sanitizedFileName = _dataSanitization.SanitizeFieldValue(file.FileName);
+                
+                // 4. 提取有哪些表頭、每個column可能的型別和總行數
                 long totalRows;
                 IEnumerable<DatasetColumn> columns;
                 await using (var stream = file.OpenReadStream())
@@ -92,16 +121,39 @@ namespace BIDashboardBackend.Services
                     (totalRows, columns) = await _sniffer.ProbeAsync(stream, batchId: 0);
                 }
 
-                // 3. 插入 DataBatch
-                var batchId = await _repo.CreateBatchAsync(datasetId, file.FileName, totalRows);
+                // 5. 清理和驗證欄位名稱
+                var sanitizedColumns = new List<DatasetColumn>();
+                foreach (var column in columns)
+                {
+                    var sanitizedSourceName = _dataSanitization.SanitizeColumnName(column.SourceName);
+                    
+                    // 創建新的 DatasetColumn 物件，使用清理後的名稱
+                    var sanitizedColumn = new DatasetColumn
+                    {
+                        BatchId = column.BatchId,
+                        SourceName = sanitizedSourceName,
+                        DataType = column.DataType,
+                        SampleValue = column.SampleValue,
+                        CreatedAt = column.CreatedAt,
+                        UpdatedAt = column.UpdatedAt
+                    };
+                    
+                    sanitizedColumns.Add(sanitizedColumn);
+                    
+                    _logger.LogDebug("欄位名稱清理: {OriginalName} -> {SanitizedName}", 
+                        column.SourceName, sanitizedSourceName);
+                }
+
+                // 6. 插入 DataBatch
+                var batchId = await _repo.CreateBatchAsync(datasetId, sanitizedFileName, totalRows);
                 
-                // 4. 插入 DataColumn
-                foreach (var col in columns) 
+                // 7. 插入 DataColumn
+                foreach (var col in sanitizedColumns) 
                     col.GetType().GetProperty("BatchId")?.SetValue(col, batchId);
 
-                await _repo.UpsertColumnsAsync(batchId, columns);
+                await _repo.UpsertColumnsAsync(batchId, sanitizedColumns);
 
-                // 5. 插入 DataRow - 重新開啟 stream
+                // 8. 插入 DataRow（重新開啟 stream 並進行資料清理）
                 await using (var stream = file.OpenReadStream())
                 {
                     await _repo.BulkCopyRowsAsync(batchId, stream, CancellationToken.None);
@@ -109,16 +161,20 @@ namespace BIDashboardBackend.Services
                 
                 await _uow.CommitAsync();
 
+                _logger.LogInformation("CSV 檔案上傳成功: {FileName}, BatchId: {BatchId}, 總行數: {TotalRows}", 
+                    sanitizedFileName, batchId, totalRows);
+
                 return new UploadResultDto
                 {
                     BatchId = batchId,
-                    FileName = file.FileName,
+                    FileName = sanitizedFileName,
                     TotalRows = totalRows,
                     Status = "Pending"
                 };
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogError(ex, "CSV 檔案上傳失敗: {FileName}, 用戶: {UserId}", file.FileName, userId);
                 await _uow.RollbackAsync();
                 throw;
             }

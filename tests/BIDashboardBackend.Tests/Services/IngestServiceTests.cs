@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Http;
 using System.Linq.Expressions;
 using Moq;
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 
 namespace BIDashboardBackend.Tests.Services
 {
@@ -21,6 +22,9 @@ namespace BIDashboardBackend.Tests.Services
         private Mock<IDatasetRepository> _mockRepository;
         private Mock<IUnitOfWork> _mockUnitOfWork;
         private Mock<IBackgroundJobClient> _mockBackgroundJobClient;
+        private Mock<IFileValidationService> _mockFileValidation;
+        private Mock<IDataSanitizationService> _mockDataSanitization;
+        private Mock<ILogger<IngestService>> _mockLogger;
         private IngestService _service;
 
         [SetUp]
@@ -29,6 +33,9 @@ namespace BIDashboardBackend.Tests.Services
             _mockRepository = new Mock<IDatasetRepository>();
             _mockUnitOfWork = new Mock<IUnitOfWork>();
             _mockBackgroundJobClient = new Mock<IBackgroundJobClient>();
+            _mockFileValidation = new Mock<IFileValidationService>();
+            _mockDataSanitization = new Mock<IDataSanitizationService>();
+            _mockLogger = new Mock<ILogger<IngestService>>();
 
             // 使用真實的 CsvSniffer 實體
             var csvSniffer = new CsvSniffer();
@@ -37,7 +44,10 @@ namespace BIDashboardBackend.Tests.Services
                 _mockRepository.Object,
                 _mockUnitOfWork.Object,
                 _mockBackgroundJobClient.Object,
-                csvSniffer  // 真實物件
+                csvSniffer,
+                _mockFileValidation.Object,
+                _mockDataSanitization.Object,
+                _mockLogger.Object
             );
         }
 
@@ -200,6 +210,16 @@ namespace BIDashboardBackend.Tests.Services
             var batchId = 1L;
             var totalRows = 3L; // 實際的資料行數
 
+            // 模擬檔案驗證服務
+            _mockFileValidation.Setup(x => x.ValidateCsvFileAsync(It.IsAny<IFormFile>()))
+                              .ReturnsAsync(new FileValidationResult { IsValid = true });
+
+            // 模擬資料清理服務
+            _mockDataSanitization.Setup(x => x.SanitizeFieldValue(It.IsAny<string>()))
+                                .Returns<string>(input => input); // 返回原始值
+            _mockDataSanitization.Setup(x => x.SanitizeColumnName(It.IsAny<string>()))
+                                .Returns<string>(input => input); // 返回原始值
+
             _mockRepository.Setup(x => x.GetBatchCountByDatasetAsync(datasetId))
                           .ReturnsAsync(0); // 資料集目前有 0 個批次
             _mockUnitOfWork.Setup(x => x.BeginAsync()).Returns(Task.CompletedTask);
@@ -277,6 +297,16 @@ namespace BIDashboardBackend.Tests.Services
             mockFile.Setup(f => f.FileName).Returns("test.csv");
             mockFile.Setup(f => f.OpenReadStream()).Returns(new MemoryStream(csvBytes));
 
+            // 模擬檔案驗證服務
+            _mockFileValidation.Setup(x => x.ValidateCsvFileAsync(It.IsAny<IFormFile>()))
+                              .ReturnsAsync(new FileValidationResult { IsValid = true });
+
+            // 模擬資料清理服務
+            _mockDataSanitization.Setup(x => x.SanitizeFieldValue(It.IsAny<string>()))
+                                .Returns<string>(input => input);
+            _mockDataSanitization.Setup(x => x.SanitizeColumnName(It.IsAny<string>()))
+                                .Returns<string>(input => input);
+
             var userId = 1L;
             var datasetId = 1L;
 
@@ -315,6 +345,10 @@ namespace BIDashboardBackend.Tests.Services
             var userId = 1L;
             var datasetId = 1L;
 
+            // 模擬檔案驗證服務
+            _mockFileValidation.Setup(x => x.ValidateCsvFileAsync(It.IsAny<IFormFile>()))
+                              .ReturnsAsync(new FileValidationResult { IsValid = true });
+
             _mockRepository.Setup(x => x.GetBatchCountByDatasetAsync(datasetId))
                           .ReturnsAsync(5); // 資料集已達到最大限制（5 個批次）
 
@@ -339,6 +373,16 @@ namespace BIDashboardBackend.Tests.Services
             mockFile.Setup(f => f.Length).Returns(csvBytes.Length);
             mockFile.Setup(f => f.FileName).Returns("test.csv");
             mockFile.Setup(f => f.OpenReadStream()).Returns(new MemoryStream(csvBytes));
+
+            // 模擬檔案驗證服務
+            _mockFileValidation.Setup(x => x.ValidateCsvFileAsync(It.IsAny<IFormFile>()))
+                              .ReturnsAsync(new FileValidationResult { IsValid = true });
+
+            // 模擬資料清理服務
+            _mockDataSanitization.Setup(x => x.SanitizeFieldValue(It.IsAny<string>()))
+                                .Returns<string>(input => input);
+            _mockDataSanitization.Setup(x => x.SanitizeColumnName(It.IsAny<string>()))
+                                .Returns<string>(input => input);
 
             var userId = 1L;
             var datasetId = 1L;

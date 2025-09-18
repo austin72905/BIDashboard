@@ -200,13 +200,33 @@ namespace BIDashboardBackend.Tests.Controllers
         }
 
         [Test]
-        public async Task UploadCsv_WithArgumentException_ShouldReturnBadRequest()
+        public async Task UploadCsv_WithInvalidDatasetId_ShouldReturnBadRequest()
         {
             // Arrange
             var mockFile = new Mock<IFormFile>();
             mockFile.Setup(f => f.Length).Returns(1024); // 正常檔案大小
             var request = new UploadCsvDto { File = mockFile.Object };
             var datasetId = 0L; // 無效的 datasetId
+
+            // 不需要設定 IngestService，因為控制器層級就會檢查 datasetId
+
+            // Act
+            var result = await _controller.UploadCsv(request, datasetId);
+
+            // Assert
+            result.Should().BeOfType<BadRequestObjectResult>();
+            var badRequestResult = result as BadRequestObjectResult;
+            badRequestResult!.Value.Should().Be("無效的資料集 ID");
+        }
+
+        [Test]
+        public async Task UploadCsv_WithArgumentException_ShouldReturnBadRequestWithErrorObject()
+        {
+            // Arrange
+            var mockFile = new Mock<IFormFile>();
+            mockFile.Setup(f => f.Length).Returns(1024);
+            var request = new UploadCsvDto { File = mockFile.Object };
+            var datasetId = 1L;
 
             _mockIngestService.Setup(x => x.UploadCsvAsync(mockFile.Object, 1, datasetId))
                             .ThrowsAsync(new ArgumentException("資料集 ID 必須大於 0"));
@@ -217,7 +237,24 @@ namespace BIDashboardBackend.Tests.Controllers
             // Assert
             result.Should().BeOfType<BadRequestObjectResult>();
             var badRequestResult = result as BadRequestObjectResult;
-            badRequestResult!.Value.Should().Be("資料集 ID 必須大於 0");
+            var errorObject = badRequestResult!.Value;
+            
+            // 檢查錯誤物件結構
+            errorObject.Should().NotBeNull();
+            
+            // 使用反射來檢查匿名物件的屬性
+            var errorType = errorObject.GetType();
+            var messageProperty = errorType.GetProperty("message");
+            var typeProperty = errorType.GetProperty("type");
+            
+            messageProperty.Should().NotBeNull();
+            typeProperty.Should().NotBeNull();
+            
+            var messageValue = messageProperty!.GetValue(errorObject);
+            var typeValue = typeProperty!.GetValue(errorObject);
+            
+            messageValue.Should().Be("資料集 ID 必須大於 0");
+            typeValue.Should().Be("ArgumentError");
         }
 
         #endregion

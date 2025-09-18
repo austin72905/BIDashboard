@@ -57,16 +57,38 @@ namespace BIDashboardBackend.Controllers
             }
         }
 
+        /// <summary>
+        /// 上傳 CSV 檔案（包含完整安全驗證）
+        /// </summary>
+        /// <param name="req">上傳請求</param>
+        /// <param name="datasetId">資料集 ID</param>
+        /// <returns>上傳結果</returns>
         [HttpPost("csv")]
         [RequestSizeLimit(10 * 1024 * 1024)] // 10mb
         [Authorize]
         public async Task<IActionResult> UploadCsv([FromForm] UploadCsvDto req, [FromQuery] long datasetId)
         {
+            // 檢查模型驗證
+            if (!ModelState.IsValid)
+            {
+                var errors = ModelState
+                    .SelectMany(x => x.Value?.Errors ?? new Microsoft.AspNetCore.Mvc.ModelBinding.ModelErrorCollection())
+                    .Select(x => x.ErrorMessage)
+                    .ToArray();
+                return BadRequest(new { message = "檔案驗證失敗", errors });
+            }
+
             // 從 JWT 中提取 user ID
             var userIdClaim = User.FindFirst("sub") ?? User.FindFirst(ClaimTypes.NameIdentifier);
             if (userIdClaim == null || !long.TryParse(userIdClaim.Value, out var userId))
             {
                 return Unauthorized("無效的用戶認證");
+            }
+
+            // 驗證 datasetId 參數
+            if (datasetId <= 0)
+            {
+                return BadRequest("無效的資料集 ID");
             }
 
             try
@@ -76,11 +98,17 @@ namespace BIDashboardBackend.Controllers
             }
             catch (ArgumentException ex)
             {
-                return BadRequest(ex.Message);
+                return BadRequest(new { message = ex.Message, type = "ArgumentError" });
             }
             catch (InvalidOperationException ex)
             {
-                return BadRequest(ex.Message);
+                return BadRequest(new { message = ex.Message, type = "ValidationError" });
+            }
+            catch (Exception ex)
+            {
+                // 記錄未預期的錯誤，但不暴露詳細信息給客戶端
+                Console.WriteLine($"上傳檔案時發生未預期錯誤: {ex}");
+                return StatusCode(500, new { message = "檔案上傳失敗，請稍後再試" });
             }
         }
 
