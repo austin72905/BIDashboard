@@ -88,6 +88,7 @@ builder.Services.AddScoped<IDataSanitizationService, DataSanitizationService>();
 builder.Services.AddScoped<IDatasetRepository, DatasetRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IMetricRepository, MetricRepository>();
+builder.Services.AddScoped<IEtlRepository, EtlRepository>();
 
 
 builder.Services.AddControllers();

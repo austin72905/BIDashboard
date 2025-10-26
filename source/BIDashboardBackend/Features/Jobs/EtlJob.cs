@@ -1,5 +1,6 @@
 using BIDashboardBackend.Caching;
 using BIDashboardBackend.Interfaces;
+using BIDashboardBackend.Interfaces.Repositories;
 using Hangfire;
 using Microsoft.Extensions.Logging;
 
@@ -10,9 +11,11 @@ namespace BIDashboardBackend.Features.Jobs
     /// </summary>
     public sealed class EtlJob : IEtlJob
     {
-        // 交易與 SQL 執行相關的服務
+        // 交易相關的服務
         private readonly IUnitOfWork _uow;
-        private readonly ISqlRunner _sql;
+        
+        // ETL 資料處理的 Repository
+        private readonly IEtlRepository _etlRepo;
 
         // 清除快取所需的工具與服務
         private readonly CacheKeyBuilder _keyBuilder;
@@ -24,10 +27,10 @@ namespace BIDashboardBackend.Features.Jobs
         /// <summary>
         /// 建構子：注入資料庫與快取相關服務
         /// </summary>
-        public EtlJob(IUnitOfWork uow, ISqlRunner sql, CacheKeyBuilder keyBuilder, ICacheService cache, ILogger<EtlJob> logger)
+        public EtlJob(IUnitOfWork uow, IEtlRepository etlRepo, CacheKeyBuilder keyBuilder, ICacheService cache, ILogger<EtlJob> logger)
         {
-            _sql = sql;
             _uow = uow;
+            _etlRepo = etlRepo;
             _keyBuilder = keyBuilder;
             _cache = cache;
             _logger = logger;
@@ -73,9 +76,7 @@ namespace BIDashboardBackend.Features.Jobs
 
                     // C) 標記批次處理成功
                     _logger.LogDebug("更新批次狀態為成功 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
-                    await _sql.ExecAsync(
-                        "UPDATE dataset_batches SET status='Succeeded', updated_at=NOW() WHERE id=@BatchId",
-                        new { BatchId = batchId });
+                    await _etlRepo.UpdateBatchStatusToSucceededAsync(batchId);
                     _logger.LogInformation("Dataset batch 更新狀態成功 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
                 }
 
@@ -153,8 +154,7 @@ namespace BIDashboardBackend.Features.Jobs
         private async Task ClearOldByBatchAsync(long datasetId, long batchId)
         {
             _logger.LogDebug("開始清除舊的 by-batch 統計資料 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
-            // 呼叫 fn_mm_clear_old_by_batch 刪除舊的 by-batch 統計值
-            await _sql.ExecAsync(SqlClearOldByBatch, new { DatasetId = datasetId, BatchId = batchId });
+            await _etlRepo.ClearOldByBatchAsync(datasetId, batchId);
             _logger.LogDebug("清除舊的 by-batch 統計資料完成 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
         }
 
@@ -164,8 +164,7 @@ namespace BIDashboardBackend.Features.Jobs
         private async Task InsertByBatchAsync(long datasetId, long batchId)
         {
             _logger.LogDebug("開始寫入新的 by-batch 統計值 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
-            // 呼叫 fn_mm_insert_metrics_by_batch 解析並寫入統計值
-            await _sql.ExecAsync(SqlInsertByBatch, new { DatasetId = datasetId, BatchId = batchId });
+            await _etlRepo.InsertByBatchAsync(datasetId, batchId);
             _logger.LogDebug("寫入新的 by-batch 統計值完成 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
         }
 
@@ -175,38 +174,16 @@ namespace BIDashboardBackend.Features.Jobs
         private async Task UpsertFinalMetricsAsync(long datasetId, long batchId)
         {
             _logger.LogDebug("開始更新最終統計表 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
-            // 呼叫 fn_mm_upsert_final_metrics 將 by-batch 統計整合到最終表
-            await _sql.ExecAsync(SqlUpsertFinalMetrics, new { DatasetId = datasetId, BatchId = batchId });
+            await _etlRepo.UpsertFinalMetricsAsync(datasetId, batchId);
             _logger.LogDebug("更新最終統計表完成 - DatasetId: {DatasetId}, BatchId: {BatchId}", datasetId, batchId);
         }
-
-        // 以下 SQL 常數對應資料庫中的函式呼叫
-
-        /// <summary>
-        /// 刪除舊的 by-batch 統計值
-        /// </summary>
-        private const string SqlClearOldByBatch = @"SELECT fn_mm_clear_old_by_batch(@DatasetId, @BatchId);";
-
-        /// <summary>
-        /// 計算並寫入新的 by-batch 統計值
-        /// </summary>
-        private const string SqlInsertByBatch = @"SELECT fn_mm_insert_metrics_by_batch(@DatasetId, @BatchId);";
-
-        /// <summary>
-        /// 重新彙總並更新最終統計表
-        /// </summary>
-        private const string SqlUpsertFinalMetrics = @"SELECT fn_mm_upsert_final_metrics(@DatasetId, @BatchId);";
 
         /// <summary>
         /// 清除指定資料集的所有統計資料
         /// </summary>
         private async Task ClearAllMetricsForDatasetAsync(long datasetId)
         {
-            // 清除該資料集的所有 by-batch 統計資料
-            await _sql.ExecAsync("DELETE FROM materialized_metrics_by_batch WHERE dataset_id = @DatasetId", new { DatasetId = datasetId });
-            
-            // 清除該資料集的所有最終統計資料
-            await _sql.ExecAsync("DELETE FROM materialized_metrics WHERE dataset_id = @DatasetId", new { DatasetId = datasetId });
+            await _etlRepo.ClearAllMetricsForDatasetAsync(datasetId);
         }
 
         /// <summary>
@@ -214,19 +191,7 @@ namespace BIDashboardBackend.Features.Jobs
         /// </summary>
         private async Task RecalculateAllBatchesAsync(long datasetId)
         {
-            // 獲取該資料集的所有剩餘批次
-            const string getBatchesSql = @"
-                SELECT id FROM dataset_batches 
-                WHERE dataset_id = @DatasetId AND status = 'Succeeded'
-                ORDER BY id;";
-            
-            var batchIds = await _sql.QueryAsync<long>(getBatchesSql, new { DatasetId = datasetId });
-            
-            // 重新計算每個批次的統計資料
-            foreach (var batchId in batchIds)
-            {
-                await InsertByBatchAsync(datasetId, batchId);
-            }
+            await _etlRepo.RecalculateAllBatchesAsync(datasetId);
         }
 
         /// <summary>
@@ -234,35 +199,7 @@ namespace BIDashboardBackend.Features.Jobs
         /// </summary>
         private async Task RebuildFinalMetricsAsync(long datasetId)
         {
-            // 重新聚合所有 by-batch 統計資料到最終表
-            const string rebuildFinalSql = @"
-                INSERT INTO materialized_metrics (dataset_id, metric_key, bucket, period, value, updated_at)
-                SELECT 
-                    @datasetId as dataset_id,
-                    metric_key,
-                    bucket,
-                    period,
-                    -- 根據指標類型選擇適當的聚合值
-                    CASE 
-                        -- 營收相關指標 (TotalRevenue, ProductCategorySales, MonthlyRevenueTrend)
-                        WHEN metric_key IN (0, 8, 9) THEN SUM(sum_value)
-                        -- 計數相關指標 (TotalCustomers, TotalOrders, PendingOrders, RegionDistribution, AgeDistribution, GenderShare)
-                        WHEN metric_key IN (1, 2, 6, 10, 11, 12) THEN SUM(count_value)
-                        -- 平均訂單金額 (AvgOrderValue) - 需要特殊處理
-                        WHEN metric_key = 3 THEN 
-                            CASE 
-                                WHEN SUM(count_value) > 0 THEN SUM(sum_value) / SUM(count_value)
-                                ELSE 0 
-                            END
-                        -- 預設情況
-                        ELSE COALESCE(SUM(sum_value), SUM(count_value), 0)
-                    END as value,
-                    NOW() as updated_at
-                FROM materialized_metrics_by_batch
-                WHERE dataset_id = @datasetId
-                GROUP BY metric_key, bucket, period;";
-            
-            await _sql.ExecAsync(rebuildFinalSql, new { datasetId });
+            await _etlRepo.RebuildFinalMetricsAsync(datasetId);
         }
     }
 }
